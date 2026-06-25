@@ -1,0 +1,140 @@
+rules:
+  - id: epic_cycle_time_warning
+    status: Disabled
+    priority: 6
+    name: "Epic Cycle Time — Acceleration Required"
+    description: "Epics in progress for more than 30 days — needs a push"
+    jql: 'issuetype = Epic AND status = "In Progress" AND updated >= -60d'
+    jira_filter_id: null
+    conditions:
+      - field: cycle_time_days
+        operator: gt
+        value: 30
+    group_by: assignee
+    severity: medium
+    message_template: "In progress for {cycle_time_days} days — acceleration required (threshold: 30 days) · Status: {status}"
+
+  - id: epic_cycle_time_breached
+    status: Disabled
+    priority: 5
+    name: "Epic Cycle Time — Breached 🚨"
+    description: "Epics in progress for more than 42 days — cycle time breached"
+    jql: 'issuetype = Epic AND status = "In Progress" AND updated >= -60d'
+    jira_filter_id: null
+    conditions:
+      - field: cycle_time_days
+        operator: gt
+        value: 42
+    group_by: assignee
+    severity: high
+    message_template: "In progress for {cycle_time_days} days — cycle time BREACHED (threshold: 42 days) · Status: {status}"
+
+  # ── Role-based rules ────────────────────────────────────────────────────────
+
+  - id: epics_in_validation_no_pm_feedback
+    status: Live
+    priority: 4
+    name: "Epics Awaiting PM Feedback"
+    description: "Epics in Validation status with no PM comment in the past 7 days"
+    jql: 'issuetype = Epic AND status = Validation AND updated >= -30d'
+    jira_filter_id: null
+    conditions:
+      - field: days_since_role_comment
+        operator: days_since_role_comment
+        value: 7
+        role: product_manager
+    group_by: reporter
+    severity: high
+    message_template: |
+      *No PM feedback for {role_comment_threshold}+ days*
+      This epic is in Validation and hasn't received a product manager comment
+      in {days_since_role_comment} days (or ever). Your input is needed to unblock the team.
+
+  # ── CFB rules ───────────────────────────────────────────────────────────────
+
+  - id: cfb_regression_field_empty
+    status: Live
+    priority: 3
+    name: "CFB — Regression Field is Empty"
+    description: "Bugs reported by CFB with no Regression value set for 24+ hours"
+    jql: >
+      issuetype = Bug
+      AND reporter = 557058:3e2ef232-d5c4-4c0e-94b0-977a305ebaae
+      AND status not in (Done, Closed, Resolved, Removed)
+      AND created <= -1d
+    jira_filter_id: null
+    conditions:
+      - field: regression
+        operator: is_null
+        value: null
+    group_by: assignee
+    fallback_assignee_role: project_lead
+    severity: medium
+    message_template: "Regression field is empty · Open {age_days} day(s) · Priority: {priority} · Status: {status}"
+
+  # ── Production Bug rules ────────────────────────────────────────────────────
+
+  - id: prod_bugs_sla_breached
+    status: Live
+    priority: 1
+    name: "Production Bug — SLA Breached 🚨"
+    description: "Production bugs that have exceeded their SLA deadline"
+    jql: >
+      issuetype = Bug
+      AND reporter = 557058:3e2ef232-d5c4-4c0e-94b0-977a305ebaae
+      AND status not in ("Ready for Deploy", Done, Closed, Resolved, Removed)
+    jira_filter_id: null
+    conditions:
+      - field: sla_status
+        operator: eq
+        value: breached
+    group_by: assignee
+    fallback_assignee_role: project_lead
+    severity: high
+    message_template: "<span style='color:#cc0000'><strong>⏱ {age_days} days open</strong></span> vs <strong>{sla_days} day SLA</strong> — <span style='color:#cc0000'><strong>{sla_overdue_days} days overdue</strong></span> · {priority} · Regression: {regression} · Status: {status}"
+
+  - id: prod_bugs_sla_warning
+    status: Live
+    priority: 2
+    name: "Production Bug — SLA Due Tomorrow ⚠️"
+    description: "Production bugs within 1 day of breaching their SLA"
+    jql: >
+      issuetype = Bug
+      AND reporter = 557058:3e2ef232-d5c4-4c0e-94b0-977a305ebaae
+      AND status not in ("Ready for Deploy", Done, Closed, Resolved, Removed)
+    jira_filter_id: null
+    conditions:
+      - field: sla_status
+        operator: eq
+        value: warning
+    group_by: assignee
+    fallback_assignee_role: project_lead
+    severity: medium
+    message_template: "SLA due tomorrow · Open {age_days} of {sla_days} days · Priority: {priority} · Regression: {regression} · Status: {status}"
+
+  - id: prod_bugs_no_progress
+    status: Live
+    priority: 3
+    name: "Production Bug — No Progress"
+    description: "Production bugs with no update for 3+ days"
+    jql: >
+      issuetype = Bug
+      AND reporter = 557058:3e2ef232-d5c4-4c0e-94b0-977a305ebaae
+      AND status not in ("Ready for Deploy", Done, Closed, Resolved, Removed)
+      AND updated <= -3d
+    jira_filter_id: null
+    conditions:
+      - field: days_since_update
+        operator: gte
+        value: 3
+    group_by: assignee
+    fallback_assignee_role: project_lead
+    severity: high
+    message_template: "No activity for <span style='color:#cc0000'><strong>{days_since_update} days</strong></span> · Priority: {priority} · Status: {status}"
+
+settings:
+  jira_base_url: "https://your-org.atlassian.net"
+  jira_filter_base_url: "https://your-org.atlassian.net/issues/?filter="
+  default_timezone: "UTC"
+  max_issues_per_rule: 100
+  dry_run: false

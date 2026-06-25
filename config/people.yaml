@@ -1,0 +1,82 @@
+# External people registry.
+#
+# Each entry maps a real person to one or more roles.
+#
+# email            — REQUIRED for Power Automate DM delivery.
+#                    Must match the person's Microsoft 365 / Teams login email.
+# jira_account_id  — copy from https://nice-ce-cxone-prod.atlassian.net/rest/api/3/myself
+#                    or look up any issue's assignee.accountId via the Jira API.
+#                    Used to match Jira issue owners back to people here.
+# roles            — drives which rules each person receives alerts for.
+# role_alerts_only — when true, this person ONLY receives digests from rules that
+#                    explicitly target their role (group_by: notify_role).
+#                    They are silently skipped for all assignee/reporter-based rules.
+#                    Use this for product managers who should only get PM-specific alerts.
+
+people:
+  # ── Engineering ─────────────────────────────────────────────────────────────
+  - display_name: "Kobi Cohen"
+    email: "kobi.cohen@nice.com"
+    jira_account_id: "712020:d06199c4-a838-4a07-b0d5-6c752e24721a"
+    roles:
+      - engineering_manager
+
+  # ── Managerial summary subscribers ───────────────────────────────────────────
+  # Listed here so the daily managerial summary greeting shows their display name.
+  # The 'manager' role is not referenced by any rule, so it carries no alert routing.
+  - display_name: "Ben Johnson"
+    email: "ben.johnson@nice.com"
+    jira_account_id: "6328994d14c6b4b22109f775"
+    roles:
+      - manager
+
+  - display_name: "Ashish Sheth"
+    email: "ashish.sheth@nice.com"
+    jira_account_id: "712020:3fe6c09a-5f40-4f89-a4bc-6c1ab1cf2a61"
+    roles:
+      - manager
+
+  - display_name: "Pradeep Sant"
+    email: "pradeep.sant@nice.com"
+    jira_account_id: "712020:bf94890e-aeeb-49b6-961c-3e7cf57ca310"
+    roles:
+      - manager
+
+  # ── Product Management ───────────────────────────────────────────────────────
+  # role_alerts_only: true  →  these PMs receive ONLY epics_in_validation_no_pm_feedback.
+  # They are excluded from epic_cycle_time, no_recent_updates, prod_bugs, etc.
+
+  - display_name: "Ayelet Bretler"
+    email: "ayelet.bretler@nice.com"
+    jira_account_id: "63070306f63ba4d04a12cd01"
+    roles:
+      - product_manager
+    role_alerts_only: true
+
+  - display_name: "Shikha Kapse"
+    email: "shikha.kapse@nice.com"
+    jira_account_id: ""              # fill in from Jira if needed
+    roles:
+      - product_manager
+    role_alerts_only: true
+
+  - display_name: "Idan Varshavski"
+    email: "idan.varshavski@nice.com"
+    jira_account_id: "5b76e4fc2708b7654dc23d71"
+    roles:
+      - product_manager
+    role_alerts_only: true
+
+  - display_name: "Mike Midgley"
+    email: "mike.midgley@nice.com"
+    jira_account_id: "712020:58d78503-8418-45b8-ad32-f550d79f6c2c"
+    roles:
+      - product_manager
+    role_alerts_only: true
+
+  - display_name: "Workoo Matuko"
+    email: "workoo.matuko@nice.com"
+    jira_account_id: "5a33b0d6757a933806e15135"
+    roles:
+      - product_manager
+    role_alerts_only: true

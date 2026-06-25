@@ -1,0 +1,95 @@
+jira:
+  base_url: "${JIRA_BASE_URL}"
+  email: "${JIRA_EMAIL}"
+  api_token: "${JIRA_API_TOKEN}"
+  max_results: 100
+  request_timeout_seconds: 30
+
+teams:
+  # ── Option 1: Power Automate flow (recommended for personal DMs) ────────────
+  # Create a flow at https://make.powerautomate.com:
+  #   Trigger: "When an HTTP request is received"
+  #   Action:  "Post an adaptive card to a Teams user"
+  #            Post as: Flow bot | Recipient: your email
+  #            Adaptive Card: triggerBody()?['card']
+  # Then paste the generated HTTP POST URL below.
+  use_power_automate: true
+  power_automate:
+    # Single flow URL — recipient is passed dynamically per message.
+    # Each team member's email (from people.yaml) determines who gets which DM.
+    flow_url: "${TEAMS_FLOW_URL}"
+
+  # ── Option 2: Incoming Webhook (posts to a channel) ─────────────────────────
+  # use_power_automate: false
+  # webhook_url: "${TEAMS_WEBHOOK_URL}"
+
+  # ── Option 3: Graph API (DMs via Azure app registration) ────────────────────
+  # use_graph_api: false
+  # graph_api:
+  #   tenant_id: "${TEAMS_TENANT_ID}"
+  #   client_id: "${TEAMS_CLIENT_ID}"
+  #   client_secret: "${TEAMS_CLIENT_SECRET}"
+  #   channel_id: "${TEAMS_CHANNEL_ID}"
+
+scheduler:
+  # Cron expression: daily at 9 AM UTC
+  cron_expression: "0 9 * * *"
+  timezone: "UTC"
+
+alerting:
+  # Restrict all rules to these Jira issue types.
+  # Remove or leave empty to include all types.
+  issue_types:
+    - Epic
+    - Bug
+    - Story
+  # Minimum severity to include in digests (high | medium | low)
+  min_severity: "low"
+  # Preview mode — set this to your email to receive all digests yourself first.
+  # Equivalent to passing --preview-to on the CLI.
+  # Comment out (or leave blank) for normal delivery.
+  # preview_to: "kobi.cohen@your-org.com"
+  # Each team member receives ONE message per day containing all their matching issues,
+  # grouped by rule (e.g. "Production Bugs > 5 days", "Aging Issues", …).
+  # With webhook: cards are posted to the channel, addressed to the person by name.
+  # With Graph API (use_graph_api: true): cards are sent as direct messages.
+  dry_run: false
+  # Issues that were already alerted within this window are suppressed
+  deduplication_window_hours: 24
+  deduplication_file: ".alert_cache.json"
+
+# ── Managerial summary ────────────────────────────────────────────────────────
+# A daily per-project rollup of all LIVE alerts, addressed to managers/subscribers.
+# Unlike the per-person digests, this is the "management view": grouped by project,
+# then by rule, listing every matching issue AND the owner it was delivered to.
+#
+# It is read-only — it never reads or writes the deduplication store, so it always
+# reflects the current live state and never interferes with the real alert pipeline.
+#
+# subscribers_by_project — who receives the summary, listed per project key.
+#   • A person subscribed to several projects gets ONE combined message covering
+#     all of them (no duplicate messages).
+#   • Emails need not appear in people.yaml; if they do, the person's display name
+#     is used in the greeting.
+managerial_summary:
+  enabled: true
+  # Independent daily schedule. Omit to fall back to scheduler.cron_expression / timezone.
+  cron_expression: "0 9 * * *"
+  timezone: "UTC"
+  # Only include Live rules at or above this severity (high | medium | low).
+  min_severity: "low"
+  subscribers_by_project:
+    PMN:
+      - kobi.cohen@nice.com
+      - ben.johnson@nice.com
+      - ashish.sheth@nice.com
+      - pradeep.sant@nice.com
+    PMSTND:
+      - kobi.cohen@nice.com
+      - ben.johnson@nice.com
+      - ashish.sheth@nice.com
+      - pradeep.sant@nice.com
+
+logging:
+  level: "INFO"
+  format: "json"

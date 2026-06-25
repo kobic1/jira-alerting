@@ -1,0 +1,147 @@
+"""Message generation — builds a daily digest per person.
+
+Two output formats from the same data:
+  format_digest()  → HTML string  (for Teams DM via Power Automate flow)
+  format_card()    → Adaptive Card JSON  (for Graph API / channel webhooks)
+
+HTML renders natively in a Teams chat message — bold, links, and structure
+all appear exactly as in any Teams DM. No card schema needed.
+"""
+from __future__ import annotations
+
+from collections import defaultdict
+from datetime import datetime
+from typing import Any
+
+from src.ingestion.jira_client import JiraClient
+from src.models import AlertGroup, RuleConfig, RuleMatch, Severity
+
+_SEVERITY_EMOJI = {
+    Severity.HIGH:   "🔴",
+    Severity.MEDIUM: "🟡",
+    Severity.LOW:    "🔵",
+}
+
+_SEVERITY_RANK = {Severity.HIGH: 0, Severity.MEDIUM: 1, Severity.LOW: 2}
+
+
+class MessageFormatter:
+    def __init__(self, jira_client: JiraClient):
+        self._jira = jira_client
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
+    def format_digest(
+        self,
+        group: AlertGroup,
+        run_date: datetime | None = None,
+        preview_for: str | None = None,
+    ) -> dict[str, Any]:
+        """Return a payload dict with both 'message' (HTML) and 'recipient' fields.
+
+        The Power Automate flow receives this and routes the HTML message as a
+        Teams DM to the right person.
+
+        preview_for: when set, prepends a visible PREVIEW banner so the reviewer
+                     knows who would normally receive this message.
+        """
+        date_str = (run_date or datetime.utcnow()).strftime("%a %d %b %Y")
+        total = len(group.matches)
+        noun = "item" if total == 1 else "items"
+        by_rule = self._group_by_rule(group.matches)
+
+        parts: list[str] = []
+
+        if preview_for:
+            parts.append(self._preview_banner_html(group.display_name, preview_for))
+
+        parts.append(
+            f"<h2>📋 Daily JIRA Signals — {group.display_name}</h2>"
+            f"<p><strong>{total} {noun}</strong> need your attention &nbsp;·&nbsp; {date_str}</p>"
+            f"<hr/>"
+        )
+
+        for rule, matches in by_rule:
+            parts.append(self._rule_section_html(rule, matches))
+
+        html = "\n".join(parts)
+        recipient_email = group.owner.email if group.owner else None
+
+        return {
+            "recipient": recipient_email,
+            "message":   html,
+        }
+
+    # ------------------------------------------------------------------
+    # HTML building blocks
+    # ------------------------------------------------------------------
+
+    def _preview_banner_html(self, real_recipient: str, reviewer: str) -> str:
+        return (
+            f'<blockquote style="border-left:4px solid #f1a12b; padding:8px; margin:0 0 12px 0;">'
+            f'<strong>👁️ PREVIEW — not yet sent</strong><br/>'
+            f'Real recipient: <strong>{real_recipient}</strong><br/>'
+            f'Reviewing as: {reviewer}<br/>'
+            f'<em>Run <code>python3 main.py --run-once</code> to approve and send for real.</em>'
+            f'</blockquote>'
+        )
+
+    _MAX_ISSUES_PER_RULE = 5
+
+    def _rule_section_html(self, rule: RuleConfig, matches: list[RuleMatch]) -> str:
+        emoji = _SEVERITY_EMOJI[rule.severity]
+        count = len(matches)
+        filter_url = self._jira.get_filter_url(rule.jira_filter_id, rule.jql)
+
+        shown = matches[: self._MAX_ISSUES_PER_RULE]
+        overflow = count - len(shown)
+
+        rows = "\n".join(self._issue_row_html(m) for m in shown)
+        overflow_line = (
+            f'<li><em>…and <a href="{filter_url}">{overflow} more</a> — view all in Jira</em></li>'
+            if overflow > 0
+            else ""
+        )
+
+        return (
+            f"<h3>{emoji} {rule.name} &nbsp;<small>({count})</small></h3>"
+            f"<p><em>{rule.description}</em></p>"
+            f"<ul>{rows}{overflow_line}</ul>"
+            f'<p><a href="{filter_url}">🔗 View all in Jira</a></p>'
+            f"<hr/>"
+        )
+
+    def _issue_row_html(self, match: RuleMatch) -> str:
+        issue = match.issue
+        detail = self._render_template(match.rule.message_template, match).strip()
+        return (
+            f'<li>'
+            f'<a href="{issue.url}"><strong>{issue.key}</strong></a> — {issue.summary}<br/>'
+            f'<small>{detail}</small>'
+            f'</li>'
+        )
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
+    def _group_by_rule(
+        self, matches: list[RuleMatch]
+    ) -> list[tuple[RuleConfig, list[RuleMatch]]]:
+        bucket: dict[str, list[RuleMatch]] = defaultdict(list)
+        rules: dict[str, RuleConfig] = {}
+        for match in matches:
+            bucket[match.rule.id].append(match)
+            rules[match.rule.id] = match.rule
+        return sorted(
+            ((rules[rid], ms) for rid, ms in bucket.items()),
+            key=lambda pair: (pair[0].priority, _SEVERITY_RANK[pair[0].severity], pair[0].name),
+        )
+
+    def _render_template(self, template: str, match: RuleMatch) -> str:
+        try:
+            return template.format(**match.context)
+        except KeyError:
+            return template
