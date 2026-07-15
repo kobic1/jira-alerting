@@ -9,6 +9,7 @@ all appear exactly as in any Teams DM. No card schema needed.
 """
 from __future__ import annotations
 
+import re
 from collections import defaultdict
 from datetime import datetime
 from typing import Any
@@ -24,6 +25,22 @@ _SEVERITY_EMOJI = {
 }
 
 _SEVERITY_RANK = {Severity.HIGH: 0, Severity.MEDIUM: 1, Severity.LOW: 2}
+
+
+def _strip_html(text: str) -> str:
+    """Flatten HTML to plain text — Adaptive Card TextBlocks don't render HTML."""
+    return re.sub(r"<[^>]+>", "", text).replace("&nbsp;", " ").strip()
+
+
+def _html_to_card_md(text: str) -> str:
+    """HTML → Adaptive-Card markdown: <b>/<strong> become **bold**, other tags drop.
+
+    Adaptive Card TextBlocks render a markdown subset (bold, links) but NOT HTML
+    and NOT inline color — color is applied per-TextBlock by the caller.
+    """
+    text = re.sub(r"</?(?:strong|b)>", "**", text, flags=re.IGNORECASE)
+    text = re.sub(r"<[^>]+>", "", text)
+    return text.replace("&nbsp;", " ").strip()
 
 
 class MessageFormatter:
@@ -78,6 +95,85 @@ class MessageFormatter:
         return {
             "recipient": recipient_email,
             "message":   html,
+        }
+
+    def format_digest_card(
+        self,
+        group: AlertGroup,
+        run_date: datetime | None = None,
+    ) -> dict[str, Any]:
+        """Return {recipient, card} — an Adaptive Card version of the digest.
+
+        The ⏰ Snooze button is an ``Action.Submit`` (not a URL), so clicking it
+        opens no browser. It's delivered by a flow that "posts an adaptive card
+        and waits for a response"; the submitted ``data.action == 'snooze'``
+        tells that flow to Delay 2h and re-post the reminder — all inside Teams.
+        """
+        date_str = (run_date or datetime.utcnow()).strftime("%a %d %b %Y")
+        total = len(group.matches)
+        noun = "item" if total == 1 else "items"
+        recipient_email = group.owner.email if group.owner else None
+
+        body: list[dict[str, Any]] = [
+            {"type": "TextBlock", "size": "Large", "weight": "Bolder", "wrap": True,
+             "text": f"📋 Daily JIRA Signals — {group.display_name}"},
+            {"type": "TextBlock", "isSubtle": True, "spacing": "None", "wrap": True,
+             "text": f"{total} {noun} need your attention · {date_str}"},
+        ]
+        for rule, matches in self._group_by_rule(group.matches):
+            emoji = _SEVERITY_EMOJI[rule.severity]
+            filter_url = self._jira.get_filter_url(rule.jira_filter_id, rule.jql)
+            body.append(
+                {"type": "TextBlock", "weight": "Bolder", "size": "Medium", "separator": True,
+                 "wrap": True, "text": f"{emoji} {rule.name} ({len(matches)})"}
+            )
+            if rule.description:
+                body.append(
+                    {"type": "TextBlock", "isSubtle": True, "spacing": "None", "wrap": True,
+                     "text": f"_{rule.description}_"}
+                )
+            for m in matches[: self._MAX_ISSUES_PER_RULE]:
+                detail = _html_to_card_md(self._render_template(m.rule.message_template, m).strip())
+                # Bullet in a narrow column + issue/detail stacked in the wide column,
+                # so the detail indents under the issue (like the reminder's <li>).
+                # Black text with bold accents (from <strong>) — Adaptive Cards can't
+                # color individual words the way the HTML reminder does.
+                content = [
+                    {"type": "TextBlock", "wrap": True,
+                     "text": f"[{m.issue.key}]({m.issue.url}) — {m.issue.summary}"}
+                ]
+                if detail:
+                    content.append(
+                        {"type": "TextBlock", "size": "Small", "spacing": "None",
+                         "wrap": True, "text": detail}
+                    )
+                body.append({
+                    "type": "ColumnSet", "spacing": "Small",
+                    "columns": [
+                        {"type": "Column", "width": "auto",
+                         "items": [{"type": "TextBlock", "text": "•"}]},
+                        {"type": "Column", "width": "stretch", "items": content},
+                    ],
+                })
+            body.append(
+                {"type": "TextBlock", "spacing": "Small", "wrap": True,
+                 "text": f"[🔗 View all in Jira]({filter_url})"}
+            )
+
+        card = {
+            "type": "AdaptiveCard",
+            "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+            "version": "1.4",
+            "msteams": {"width": "Full"},  # full-width card, matching the reminder message
+            "body": body,
+            "actions": [
+                {"type": "Action.Submit", "title": "⏰ Snooze 2h",
+                 "data": {"action": "snooze", "recipient": recipient_email}},
+            ],
+        }
+        return {
+            "recipient": recipient_email,
+            "card":      card,
         }
 
     # ------------------------------------------------------------------

@@ -145,6 +145,26 @@ def test_no_snooze_link_when_owner_has_no_email():
     assert "Snooze" not in msg
 
 
+def test_digest_card_has_snooze_submit_action_no_url():
+    fmt = _formatter()
+    owner = _user(email="bob@co.com")
+    group = AlertGroup(owner=owner, owner_key="u1", matches=[_match(issue=_issue("PROJ-7"))])
+    payload = fmt.format_digest_card(group)
+    card = payload["card"]
+    assert card["type"] == "AdaptiveCard"
+    assert payload["recipient"] == "bob@co.com"
+    # Exactly one action, a Submit (no URL → no browser on click), tagged snooze.
+    actions = card["actions"]
+    assert len(actions) == 1
+    assert actions[0]["type"] == "Action.Submit"
+    assert actions[0]["data"]["action"] == "snooze"
+    assert actions[0]["data"]["recipient"] == "bob@co.com"
+    # No Action.OpenUrl anywhere (that would open a browser).
+    assert all(a["type"] != "Action.OpenUrl" for a in actions)
+    # Issue shows up in the card body.
+    assert "PROJ-7" in str(card["body"])
+
+
 def test_multiple_rules_all_appear_in_message():
     fmt = _formatter()
     m1 = _match(rule=_rule("r1", Severity.HIGH),   issue=_issue("A-1"))
