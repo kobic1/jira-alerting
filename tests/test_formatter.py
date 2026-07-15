@@ -129,9 +129,10 @@ def test_snooze_link_present_and_carries_context_when_configured():
     group = AlertGroup(owner=owner, owner_key="u1", matches=[_match(issue=_issue("PROJ-42"))])
     msg = fmt.format_digest(group)["message"]
     assert "⏰ Snooze 2h" in msg
-    # The link must carry the issue key and recipient so the flow can re-alert.
-    assert "issue=PROJ-42" in msg
+    # The link must carry recipient + message (the identical flow's two fields).
     assert "recipient=bob%40co.com" in msg  # url-encoded @
+    assert "&message=" in msg
+    assert "PROJ-42" in msg  # issue key appears (url-encoded) inside the message param
 
 
 def test_no_snooze_link_when_owner_has_no_email():

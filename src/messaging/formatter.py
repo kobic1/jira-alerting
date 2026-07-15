@@ -135,18 +135,22 @@ class MessageFormatter:
     def _snooze_link_html(self, issue, recipient_email: str | None) -> str:
         """A '⏰ Snooze 2h' hyperlink, or '' when snooze isn't configured.
 
-        Clicking hits the snooze Power Automate flow, which waits 2 hours and
-        re-posts a reminder about this issue to the same recipient. All the
-        context the flow needs is carried in the query string, so the flow
-        stays stateless — it never has to call back into Jira.
+        The snooze flow is identical to the alert flow — after a 2h delay it
+        posts a `message` to a `recipient`. Those are the only two fields it
+        needs, so the link carries both. A clicked link is a GET, so they ride
+        in the query string; the flow reads them from
+        triggerOutputs()?['queries'] rather than the request body.
         """
         if not self._snooze_flow_url or not recipient_email:
             return ""
+        reminder = (
+            "⏰ <b>Snoozed reminder</b><br/>"
+            f'<a href="{issue.url}"><b>{issue.key}</b></a> — {issue.summary}<br/>'
+            "<small>You snoozed this earlier — resurfacing it now.</small>"
+        )
         params = (
-            f"&issue={quote(issue.key)}"
             f"&recipient={quote(recipient_email)}"
-            f"&summary={quote(issue.summary[:120])}"
-            f"&url={quote(issue.url)}"
+            f"&message={quote(reminder)}"
         )
         href = f"{self._snooze_flow_url}{params}"
         return (
