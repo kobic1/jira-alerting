@@ -176,18 +176,73 @@ class TeamsPowerAutomateSender:
     is required -- just POST directly to the URL.
     """
 
+    # Well-known Azure public client (Azure PowerShell) — usable by any tenant
+    # member, no app registration. Used to obtain the OAuth bearer token that the
+    # powerplatform "direct API" flow URL requires (SAS disabled by tenant policy).
+    _CLIENT_ID = "1950a258-227b-4e31-a9cf-717495945fc2"
+    _SCOPES = ["https://service.flow.microsoft.com//.default"]
+    _TOKEN_CACHE_PATH = os.path.expanduser("~/.jira_alerting_token.json")
+
     def __init__(self, flow_url: str, timeout: int = 30):
         self._url = flow_url
         self._timeout = timeout
+        self._token_checked = False
+        self._token: str | None = None
+
+    def _bearer_token(self) -> str | None:
+        """Return a cached MSAL access token, refreshed silently, or None.
+
+        The token cache is seeded once via an interactive login. Here we only
+        refresh silently; if no cache/token is available we return None and the
+        caller falls back to an unauthenticated POST — correct for a
+        self-authenticating (sig=) flow URL.
+        """
+        if self._token_checked:
+            return self._token
+        self._token_checked = True
+        try:
+            import msal
+            if not os.path.exists(self._TOKEN_CACHE_PATH):
+                return None
+            cache = msal.SerializableTokenCache()
+            with open(self._TOKEN_CACHE_PATH) as f:
+                cache.deserialize(f.read())
+            app = msal.PublicClientApplication(
+                self._CLIENT_ID,
+                authority="https://login.microsoftonline.com/common",
+                token_cache=cache,
+            )
+            accounts = app.get_accounts()
+            if not accounts:
+                return None
+            result = app.acquire_token_silent(self._SCOPES, account=accounts[0])
+            if result and "access_token" in result:
+                if cache.has_state_changed:
+                    with open(self._TOKEN_CACHE_PATH, "w") as f:
+                        f.write(cache.serialize())
+                self._token = result["access_token"]
+            return self._token
+        except Exception as exc:  # auth is best-effort; fall back to plain POST
+            logger.warning("Could not acquire Teams bearer token (%s); posting unauthenticated", exc)
+            return None
 
     def send(self, payload: dict[str, Any], recipient_email: str) -> bool:
-        """POST message + recipient to the flow. The flow routes the DM."""
+        """POST message + recipient to the flow. The flow routes the DM.
+
+        Attaches an OAuth bearer token when one is available (required for the
+        powerplatform direct-API URL); otherwise posts unauthenticated (works
+        for self-authenticating sig= URLs).
+        """
         body = {
             "recipient": recipient_email,
             "message":   payload.get("message", ""),
         }
+        headers: dict[str, str] = {}
+        token = self._bearer_token()
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
         try:
-            resp = requests.post(self._url, json=body, timeout=self._timeout)
+            resp = requests.post(self._url, json=body, headers=headers, timeout=self._timeout)
             if resp.status_code in (200, 202):
                 logger.info("Flow DM accepted -> %s (HTTP %d)", recipient_email, resp.status_code)
                 return True
