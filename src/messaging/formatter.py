@@ -140,6 +140,66 @@ class MessageFormatter:
             key=lambda pair: (pair[0].priority, _SEVERITY_RANK[pair[0].severity], pair[0].name),
         )
 
+    def format_manager_digest(
+        self,
+        groups: list[AlertGroup],
+        run_date: datetime | None = None,
+        manager_name: str = "Manager",
+        projects: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Single consolidated card for a manager showing all alerts grouped by rule."""
+        date_str = (run_date or datetime.utcnow()).strftime("%a %d %b %Y")
+        all_matches = [m for g in groups for m in g.matches]
+        total = len(all_matches)
+        noun = "item" if total == 1 else "items"
+        projects_str = " · ".join(projects) if projects else "All projects"
+
+        by_rule: dict[str, list[RuleMatch]] = defaultdict(list)
+        rules: dict[str, RuleConfig] = {}
+        for match in all_matches:
+            by_rule[match.rule.id].append(match)
+            rules[match.rule.id] = match.rule
+
+        sorted_rules = sorted(
+            ((rules[rid], ms) for rid, ms in by_rule.items()),
+            key=lambda pair: (pair[0].priority, _SEVERITY_RANK[pair[0].severity]),
+        )
+
+        parts: list[str] = [
+            f"<h2>📊 Manager Alert Review — {projects_str}</h2>"
+            f"<p><strong>{total} {noun}</strong> triggered across {len(sorted_rules)} rule(s) &nbsp;·&nbsp; {date_str}</p>"
+            f"<hr/>"
+        ]
+
+        for rule, matches in sorted_rules:
+            emoji = _SEVERITY_EMOJI[rule.severity]
+            count = len(matches)
+            filter_url = self._jira.get_filter_url(rule.jira_filter_id, rule.jql)
+            rows = []
+            for m in matches:
+                issue = m.issue
+                owner_name = (m.owner_override.display_name if m.owner_override else None) or \
+                             (issue.assignee.display_name if issue.assignee else "Unassigned")
+                detail = self._render_template(rule.message_template, m).strip()
+                rows.append(
+                    f'<li>'
+                    f'<a href="{issue.url}"><strong>{issue.key}</strong></a> — {issue.summary}'
+                    f' &nbsp;<em>({owner_name})</em><br/>'
+                    f'<small>{detail}</small>'
+                    f'</li>'
+                )
+            parts.append(
+                f"<h3>{emoji} {rule.name} &nbsp;<small>({count})</small></h3>"
+                f"<ul>{''.join(rows)}</ul>"
+                f'<p><a href="{filter_url}">🔗 View all in Jira</a></p>'
+                f"<hr/>"
+            )
+
+        return {
+            "recipient": None,
+            "message": "\n".join(parts),
+        }
+
     def _render_template(self, template: str, match: RuleMatch) -> str:
         try:
             return template.format(**match.context)

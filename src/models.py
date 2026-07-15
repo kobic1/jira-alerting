@@ -111,6 +111,14 @@ class JiraIssue:
         return sla - self.age_days
 
     @property
+    def sla_pct_used(self) -> float | None:
+        """Fraction of SLA consumed (0.0–1.0+). None if SLA unknown."""
+        sla = self.sla_days
+        if not sla:
+            return None
+        return self.age_days / sla
+
+    @property
     def sla_status(self) -> str:
         """'breached', 'warning' (within 1 day), or 'ok'."""
         remaining = self.sla_remaining_days

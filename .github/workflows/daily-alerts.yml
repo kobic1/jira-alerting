@@ -31,11 +31,11 @@ jobs:
         run: |
           python main.py --run-once --project PMN --project PMSTND
 
-      - name: Send preview summary to Kobi
+      - name: Send managerial summary to all subscribers
         env:
           JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
           JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
           JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
           TEAMS_FLOW_URL: ${{ secrets.TEAMS_FLOW_URL }}
         run: |
-          python main.py --run-once --preview-to kobi.cohen@nice.com --project PMN --project PMSTND
+          python main.py --managerial-summary --project PMN --project PMSTND

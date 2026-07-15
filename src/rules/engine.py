@@ -44,6 +44,21 @@ from src.rules.conditions import evaluate_condition, is_role_aware
 
 logger = logging.getLogger(__name__)
 
+
+def _business_days_between(start: datetime, end: datetime) -> int:
+    """Whole business days (Mon–Fri, weekends excluded) elapsed from start to end."""
+    if end <= start:
+        return 0
+    days = 0
+    cur = start.date()
+    last = end.date()
+    while cur < last:
+        cur += timedelta(days=1)
+        if cur.weekday() < 5:  # Mon=0 … Fri=4, so Sat/Sun are skipped
+            days += 1
+    return days
+
+
 # ---------------------------------------------------------------------------
 # Field extractors — map condition field names to JiraIssue attributes
 # ---------------------------------------------------------------------------
@@ -61,6 +76,7 @@ _FIELD_EXTRACTORS: dict[str, callable] = {
     "regression":          lambda issue: issue.regression,
     "sla_days":            lambda issue: issue.sla_days,
     "sla_remaining_days":  lambda issue: issue.sla_remaining_days,
+    "sla_pct_used":        lambda issue: issue.sla_pct_used,
     "sla_status":          lambda issue: issue.sla_status,
 }
 
@@ -149,6 +165,13 @@ class RuleEngine:
                         # Resolve project lead live from Jira (cached per project per run)
                         lead = self._get_project_lead_cached(issue.key.split("-")[0])
                         if lead:
+                            # Jira's project endpoint often omits the lead's email, which
+                            # leaves the digest undeliverable. Enrich from the registry
+                            # (matched by account_id) so the owner carries a real email.
+                            if self._registry:
+                                lead_person = self._registry.resolve_jira_user(lead)
+                                if lead_person:
+                                    lead = lead_person.to_jira_user()
                             match.notified_person_key = lead.account_id or lead.email
                             match.owner_override = lead
                     elif self._registry:
@@ -256,6 +279,8 @@ class RuleEngine:
         context["status"] = issue.status
         context["sla_days"] = issue.sla_days
         context["sla_remaining_days"] = issue.sla_remaining_days
+        context["sla_pct_used"] = issue.sla_pct_used
+        context["sla_pct_used_pct"] = int(round(issue.sla_pct_used * 100)) if issue.sla_pct_used is not None else None
         context["sla_status"] = issue.sla_status
         context["regression"] = issue.regression
         context["sla_overdue_days"] = max(0, issue.age_days - (issue.sla_days or 0)) if issue.sla_days else 0
@@ -290,6 +315,8 @@ class RuleEngine:
         """
         threshold_days: int = int(condition.get("value", 0))
         target_role: str = condition.get("role", "")
+        unit: str = str(condition.get("unit", "calendar_days")).lower()
+        use_business_days = unit in ("business_days", "business", "business_day")
 
         if not target_role and not rule.notify_roles:
             logger.warning("days_since_role_comment needs 'role' key in condition")
@@ -301,7 +328,7 @@ class RuleEngine:
         role_identifiers = self._role_identifiers(role, notified_person)
 
         comments = self._get_comments_cached(issue.key)
-        cutoff = datetime.utcnow() - timedelta(days=threshold_days)
+        now = datetime.utcnow()
 
         # Find the most recent comment from anyone in the role
         last_role_comment: datetime | None = None
@@ -310,18 +337,23 @@ class RuleEngine:
                 if last_role_comment is None or comment.created_at > last_role_comment:
                     last_role_comment = comment.created_at
 
-        days_since = (
-            (datetime.utcnow() - last_role_comment).days
-            if last_role_comment
-            else None
-        )
-
-        # Alert fires when there's NO recent comment from the role
-        no_recent_comment = last_role_comment is None or last_role_comment < cutoff
+        # Alert fires when there's NO recent comment from the role — i.e. more
+        # than <threshold> days (calendar or business) have elapsed, or the role
+        # has never commented at all.
+        if last_role_comment is None:
+            days_since = None
+            no_recent_comment = True
+        elif use_business_days:
+            days_since = _business_days_between(last_role_comment, now)
+            no_recent_comment = days_since > threshold_days
+        else:
+            days_since = (now - last_role_comment).days
+            no_recent_comment = last_role_comment < now - timedelta(days=threshold_days)
 
         extra = {
             "days_since_role_comment": days_since,
             "role_comment_threshold": threshold_days,
+            "role_comment_unit": "business days" if use_business_days else "days",
             "role": role,
         }
         return no_recent_comment, extra

@@ -35,20 +35,21 @@ rules:
     status: Live
     priority: 4
     name: "Epics Awaiting PM Feedback"
-    description: "Epics in Validation status with no PM comment in the past 7 days"
+    description: "Epics in Validation status with no PM comment for more than 2 business days"
     jql: 'issuetype = Epic AND status = Validation AND updated >= -30d'
     jira_filter_id: null
     conditions:
       - field: days_since_role_comment
         operator: days_since_role_comment
-        value: 7
+        value: 2
+        unit: business_days
         role: product_manager
     group_by: reporter
     severity: high
     message_template: |
-      *No PM feedback for {role_comment_threshold}+ days*
+      *No PM feedback for more than {role_comment_threshold} business days*
       This epic is in Validation and hasn't received a product manager comment
-      in {days_since_role_comment} days (or ever). Your input is needed to unblock the team.
+      in {days_since_role_comment} business days (or ever). Your input is needed to unblock the team.
 
   # ── CFB rules ───────────────────────────────────────────────────────────────
 
@@ -96,21 +97,24 @@ rules:
   - id: prod_bugs_sla_warning
     status: Live
     priority: 2
-    name: "Production Bug — SLA Due Tomorrow ⚠️"
-    description: "Production bugs within 1 day of breaching their SLA"
+    name: "Production Bug — SLA Due Soon ⚠️"
+    description: "Production bugs that have consumed 70%+ of their SLA without breaching yet"
     jql: >
       issuetype = Bug
       AND reporter = 557058:3e2ef232-d5c4-4c0e-94b0-977a305ebaae
       AND status not in ("Ready for Deploy", Done, Closed, Resolved, Removed)
     jira_filter_id: null
     conditions:
+      - field: sla_pct_used
+        operator: gte
+        value: 0.7
       - field: sla_status
-        operator: eq
-        value: warning
+        operator: neq
+        value: breached
     group_by: assignee
     fallback_assignee_role: project_lead
     severity: medium
-    message_template: "SLA due tomorrow · Open {age_days} of {sla_days} days · Priority: {priority} · Regression: {regression} · Status: {status}"
+    message_template: "SLA {sla_pct_used_pct}% used · Open {age_days} of {sla_days} days · Priority: {priority} · Regression: {regression} · Status: {status}"
 
   - id: prod_bugs_no_progress
     status: Live
