@@ -28,6 +28,7 @@ jobs:
           JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
           JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
           TEAMS_FLOW_URL: ${{ secrets.TEAMS_FLOW_URL }}
+          SNOOZE_FLOW_URL: ${{ secrets.SNOOZE_FLOW_URL }}
         run: |
           python main.py --run-once --project PMN --project PMSTND
 
@@ -37,5 +38,6 @@ jobs:
           JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
           JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
           TEAMS_FLOW_URL: ${{ secrets.TEAMS_FLOW_URL }}
+          SNOOZE_FLOW_URL: ${{ secrets.SNOOZE_FLOW_URL }}
         run: |
           python main.py --managerial-summary --project PMN --project PMSTND

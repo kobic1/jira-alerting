@@ -12,6 +12,7 @@ from __future__ import annotations
 from collections import defaultdict
 from datetime import datetime
 from typing import Any
+from urllib.parse import quote
 
 from src.ingestion.jira_client import JiraClient
 from src.models import AlertGroup, RuleConfig, RuleMatch, Severity
@@ -26,8 +27,12 @@ _SEVERITY_RANK = {Severity.HIGH: 0, Severity.MEDIUM: 1, Severity.LOW: 2}
 
 
 class MessageFormatter:
-    def __init__(self, jira_client: JiraClient):
+    def __init__(self, jira_client: JiraClient, snooze_flow_url: str | None = None):
         self._jira = jira_client
+        # When set, every issue row gets a "⏰ Snooze 2h" link pointing at a
+        # Power Automate flow that waits 2 hours and then re-posts a reminder.
+        # Left as None (feature off) if SNOOZE_FLOW_URL isn't configured.
+        self._snooze_flow_url = snooze_flow_url
 
     # ------------------------------------------------------------------
     # Public API
@@ -63,11 +68,12 @@ class MessageFormatter:
             f"<hr/>"
         )
 
+        recipient_email = group.owner.email if group.owner else None
+
         for rule, matches in by_rule:
-            parts.append(self._rule_section_html(rule, matches))
+            parts.append(self._rule_section_html(rule, matches, recipient_email))
 
         html = "\n".join(parts)
-        recipient_email = group.owner.email if group.owner else None
 
         return {
             "recipient": recipient_email,
@@ -90,7 +96,9 @@ class MessageFormatter:
 
     _MAX_ISSUES_PER_RULE = 5
 
-    def _rule_section_html(self, rule: RuleConfig, matches: list[RuleMatch]) -> str:
+    def _rule_section_html(
+        self, rule: RuleConfig, matches: list[RuleMatch], recipient_email: str | None = None
+    ) -> str:
         emoji = _SEVERITY_EMOJI[rule.severity]
         count = len(matches)
         filter_url = self._jira.get_filter_url(rule.jira_filter_id, rule.jql)
@@ -98,7 +106,7 @@ class MessageFormatter:
         shown = matches[: self._MAX_ISSUES_PER_RULE]
         overflow = count - len(shown)
 
-        rows = "\n".join(self._issue_row_html(m) for m in shown)
+        rows = "\n".join(self._issue_row_html(m, recipient_email) for m in shown)
         overflow_line = (
             f'<li><em>…and <a href="{filter_url}">{overflow} more</a> — view all in Jira</em></li>'
             if overflow > 0
@@ -113,14 +121,37 @@ class MessageFormatter:
             f"<hr/>"
         )
 
-    def _issue_row_html(self, match: RuleMatch) -> str:
+    def _issue_row_html(self, match: RuleMatch, recipient_email: str | None = None) -> str:
         issue = match.issue
         detail = self._render_template(match.rule.message_template, match).strip()
+        snooze = self._snooze_link_html(issue, recipient_email)
         return (
             f'<li>'
             f'<a href="{issue.url}"><strong>{issue.key}</strong></a> — {issue.summary}<br/>'
-            f'<small>{detail}</small>'
+            f'<small>{detail}{snooze}</small>'
             f'</li>'
+        )
+
+    def _snooze_link_html(self, issue, recipient_email: str | None) -> str:
+        """A '⏰ Snooze 2h' hyperlink, or '' when snooze isn't configured.
+
+        Clicking hits the snooze Power Automate flow, which waits 2 hours and
+        re-posts a reminder about this issue to the same recipient. All the
+        context the flow needs is carried in the query string, so the flow
+        stays stateless — it never has to call back into Jira.
+        """
+        if not self._snooze_flow_url or not recipient_email:
+            return ""
+        params = (
+            f"&issue={quote(issue.key)}"
+            f"&recipient={quote(recipient_email)}"
+            f"&summary={quote(issue.summary[:120])}"
+            f"&url={quote(issue.url)}"
+        )
+        href = f"{self._snooze_flow_url}{params}"
+        return (
+            f' &nbsp;·&nbsp; '
+            f'<a href="{href}" title="Remind me about this issue again in 2 hours">⏰ Snooze 2h</a>'
         )
 
     # ------------------------------------------------------------------

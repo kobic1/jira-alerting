@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import sys
 
 from src.config_loader import load_people, load_rules, load_settings
@@ -99,7 +100,12 @@ def build_pipeline(
             preview_recipient.email,
         )
 
-    formatter = MessageFormatter(jira_client=jira_client)
+    # Optional snooze feature. Read straight from the environment (not settings.yaml)
+    # so an unset var simply disables the feature instead of crashing config load.
+    formatter = MessageFormatter(
+        jira_client=jira_client,
+        snooze_flow_url=os.environ.get("SNOOZE_FLOW_URL") or None,
+    )
     dedup = DeduplicationStore(
         window_hours=int(alerting_cfg.get("deduplication_window_hours", 24)),
         store_path=alerting_cfg.get("deduplication_file", ".alert_cache.json"),

@@ -111,6 +111,39 @@ def test_no_preview_banner_in_normal_mode():
     assert "PREVIEW" not in payload["message"]
 
 
+def test_no_snooze_link_when_url_not_configured():
+    fmt = _formatter()  # no snooze_flow_url
+    group = AlertGroup(owner=_user(), owner_key="u1", matches=[_match()])
+    payload = fmt.format_digest(group)
+    assert "Snooze" not in payload["message"]
+
+
+def test_snooze_link_present_and_carries_context_when_configured():
+    jira = MagicMock()
+    jira.get_filter_url.return_value = "https://example.atlassian.net/issues"
+    fmt = MessageFormatter(
+        jira_client=jira,
+        snooze_flow_url="https://flow.example.com/invoke?api-version=1",
+    )
+    owner = _user(email="bob@co.com")
+    group = AlertGroup(owner=owner, owner_key="u1", matches=[_match(issue=_issue("PROJ-42"))])
+    msg = fmt.format_digest(group)["message"]
+    assert "⏰ Snooze 2h" in msg
+    # The link must carry the issue key and recipient so the flow can re-alert.
+    assert "issue=PROJ-42" in msg
+    assert "recipient=bob%40co.com" in msg  # url-encoded @
+
+
+def test_no_snooze_link_when_owner_has_no_email():
+    jira = MagicMock()
+    jira.get_filter_url.return_value = "https://example.atlassian.net/issues"
+    fmt = MessageFormatter(jira_client=jira, snooze_flow_url="https://flow.example.com/x")
+    owner = JiraUser(account_id="u1", display_name="No Email", email=None)
+    group = AlertGroup(owner=owner, owner_key="u1", matches=[_match()])
+    msg = fmt.format_digest(group)["message"]
+    assert "Snooze" not in msg
+
+
 def test_multiple_rules_all_appear_in_message():
     fmt = _formatter()
     m1 = _match(rule=_rule("r1", Severity.HIGH),   issue=_issue("A-1"))
