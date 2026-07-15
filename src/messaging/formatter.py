@@ -122,7 +122,6 @@ class MessageFormatter:
         ]
         for rule, matches in self._group_by_rule(group.matches):
             emoji = _SEVERITY_EMOJI[rule.severity]
-            filter_url = self._jira.get_filter_url(rule.jira_filter_id, rule.jql)
             body.append(
                 {"type": "TextBlock", "weight": "Bolder", "size": "Medium", "separator": True,
                  "wrap": True, "text": f"{emoji} {rule.name} ({len(matches)})"}
@@ -155,10 +154,6 @@ class MessageFormatter:
                         {"type": "Column", "width": "stretch", "items": content},
                     ],
                 })
-            body.append(
-                {"type": "TextBlock", "spacing": "Small", "wrap": True,
-                 "text": f"[🔗 View all in Jira]({filter_url})"}
-            )
 
         card = {
             "type": "AdaptiveCard",
@@ -204,7 +199,7 @@ class MessageFormatter:
 
         rows = "\n".join(self._issue_row_html(m, recipient_email) for m in shown)
         overflow_line = (
-            f'<li><em>…and <a href="{filter_url}">{overflow} more</a> — view all in Jira</em></li>'
+            f'<li><em>…and <a href="{filter_url}">{overflow} more</a></em></li>'
             if overflow > 0
             else ""
         )
@@ -213,7 +208,6 @@ class MessageFormatter:
             f"<h3>{emoji} {rule.name} &nbsp;<small>({count})</small></h3>"
             f"<p><em>{rule.description}</em></p>"
             f"<ul>{rows}{overflow_line}</ul>"
-            f'<p><a href="{filter_url}">🔗 View all in Jira</a></p>'
             f"<hr/>"
         )
 
@@ -305,7 +299,6 @@ class MessageFormatter:
         for rule, matches in sorted_rules:
             emoji = _SEVERITY_EMOJI[rule.severity]
             count = len(matches)
-            filter_url = self._jira.get_filter_url(rule.jira_filter_id, rule.jql)
             rows = []
             for m in matches:
                 issue = m.issue
@@ -322,7 +315,6 @@ class MessageFormatter:
             parts.append(
                 f"<h3>{emoji} {rule.name} &nbsp;<small>({count})</small></h3>"
                 f"<ul>{''.join(rows)}</ul>"
-                f'<p><a href="{filter_url}">🔗 View all in Jira</a></p>'
                 f"<hr/>"
             )
 
