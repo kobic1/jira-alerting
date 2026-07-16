@@ -46,10 +46,12 @@ def build_sender(teams_cfg: dict):
     if teams_cfg.get("use_power_automate"):
         return TeamsPowerAutomateSender(
             flow_url=teams_cfg["power_automate"]["flow_url"],
-            # When set, digests go out as Adaptive Cards via this flow so the
-            # ⏰ Snooze button works inside Teams (no browser). Read from the env
-            # so an unset value just falls back to the HTML digest.
             snooze_flow_url=os.environ.get("SNOOZE_FLOW_URL") or None,
+            # OFF by default. The card/snooze path stays disabled until the
+            # snooze flow routes by the per-message recipient (today it posts to
+            # a fixed user, leaking everyone's cards + reminders to one person).
+            # Set SNOOZE_CARDS_ENABLED=true only after that flow fix is verified.
+            enable_cards=os.environ.get("SNOOZE_CARDS_ENABLED", "").lower() == "true",
         )
     if teams_cfg.get("use_graph_api"):
         graph = teams_cfg["graph_api"]

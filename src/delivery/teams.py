@@ -183,22 +183,41 @@ class TeamsPowerAutomateSender:
     _SCOPES = ["https://service.flow.microsoft.com//.default"]
     _TOKEN_CACHE_PATH = os.path.expanduser("~/.jira_alerting_token.json")
 
-    def __init__(self, flow_url: str, snooze_flow_url: str | None = None, timeout: int = 30):
+    def __init__(
+        self,
+        flow_url: str,
+        snooze_flow_url: str | None = None,
+        enable_cards: bool = False,
+        timeout: int = 30,
+    ):
         self._url = flow_url
         # Optional second flow that "posts an adaptive card and waits for a
-        # response → Delay 2h → posts the reminder". When set, digests are sent
-        # as Adaptive Cards through it so the ⏰ Snooze button stays inside Teams
-        # (no browser). Its trigger is OAuth ("any user in my tenant"), so it
-        # must be called with a bearer token — a plain POST is rejected.
+        # response → Delay 2h → posts the reminder". When active, digests are
+        # sent as Adaptive Cards through it so the ⏰ Snooze button stays inside
+        # Teams (no browser). Its trigger is OAuth ("any user in my tenant"), so
+        # it must be called with a bearer token — a plain POST is rejected.
         self._snooze_flow_url = snooze_flow_url
+        # MASTER OFF-SWITCH. The snooze flow currently posts every card to a
+        # FIXED recipient instead of the per-message one, so routing real
+        # multi-recipient traffic through it leaks everyone's alerts (and their
+        # 2h reminders) to that one person. The card path stays fully disabled —
+        # no env, no run can trigger it — until the flow is fixed to bind its
+        # "Post adaptive card" step to triggerBody()?['recipient']. Flip this on
+        # (SNOOZE_CARDS_ENABLED=true) only after that fix is verified.
+        self._enable_cards = enable_cards
         self._timeout = timeout
         self._token_checked = False
         self._token: str | None = None
 
     @property
     def supports_cards(self) -> bool:
-        """True when a snooze flow is configured to post interactive cards."""
-        return bool(self._snooze_flow_url)
+        """True only when the snooze flow is configured AND explicitly enabled."""
+        return bool(self._snooze_flow_url and self._enable_cards)
+
+    @staticmethod
+    def _is_sas_url(url: str) -> bool:
+        """A SAS-signed flow URL carries a ``sig=`` query param and self-authenticates."""
+        return "sig=" in (url or "")
 
     def _bearer_token(self) -> str | None:
         """Return a cached MSAL access token, refreshed silently, or None.
@@ -240,18 +259,20 @@ class TeamsPowerAutomateSender:
     def send(self, payload: dict[str, Any], recipient_email: str) -> bool:
         """POST message + recipient to the flow. The flow routes the DM.
 
-        Attaches an OAuth bearer token when one is available (required for the
-        powerplatform direct-API URL); otherwise posts unauthenticated (works
-        for self-authenticating sig= URLs).
+        A SAS-signed URL (``sig=`` query param) authenticates itself — attaching
+        a bearer token too makes the request carry two auth schemes and the flow
+        rejects it (HTTP 401 DirectApiRequestHasMoreThanOneAuthorization). So we
+        only attach a bearer token for non-SAS (powerplatform direct-API) URLs.
         """
         body = {
             "recipient": recipient_email,
             "message":   payload.get("message", ""),
         }
         headers: dict[str, str] = {}
-        token = self._bearer_token()
-        if token:
-            headers["Authorization"] = f"Bearer {token}"
+        if not self._is_sas_url(self._url):
+            token = self._bearer_token()
+            if token:
+                headers["Authorization"] = f"Bearer {token}"
         try:
             resp = requests.post(self._url, json=body, headers=headers, timeout=self._timeout)
             if resp.status_code in (200, 202):
