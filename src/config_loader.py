@@ -70,6 +70,7 @@ def load_rules(path: str) -> list[RuleConfig]:
                 notify_roles=notify_roles,
                 fallback_assignee_role=r.get("fallback_assignee_role"),
                 priority=int(r.get("priority", 100)),
+                emoji=r.get("emoji"),
             )
         )
     return rules

@@ -27,6 +27,11 @@ _SEVERITY_EMOJI = {
 _SEVERITY_RANK = {Severity.HIGH: 0, Severity.MEDIUM: 1, Severity.LOW: 2}
 
 
+def rule_emoji(rule) -> str:
+    """The rule's color dot: its explicit `emoji` override, else the severity dot."""
+    return rule.emoji or _SEVERITY_EMOJI[rule.severity]
+
+
 def _strip_html(text: str) -> str:
     """Flatten HTML to plain text — Adaptive Card TextBlocks don't render HTML."""
     return re.sub(r"<[^>]+>", "", text).replace("&nbsp;", " ").strip()
@@ -148,7 +153,7 @@ class MessageFormatter:
              "text": f"{total} {noun} need your attention · {date_str}"},
         ]
         for rule, matches in self._group_by_rule(group.matches):
-            emoji = _SEVERITY_EMOJI[rule.severity]
+            emoji = rule_emoji(rule)
             body.append(
                 {"type": "TextBlock", "weight": "Bolder", "size": "Medium", "separator": True,
                  "wrap": True, "text": f"{emoji} {rule.name} ({len(matches)})"}
@@ -232,7 +237,7 @@ class MessageFormatter:
         self, rule: RuleConfig, matches: list[RuleMatch], recipient_email: str | None = None,
         *, snooze_links: bool = True,
     ) -> str:
-        emoji = _SEVERITY_EMOJI[rule.severity]
+        emoji = rule_emoji(rule)
         count = len(matches)
         filter_url = self._jira.get_filter_url(rule.jira_filter_id, rule.jql)
 
@@ -341,7 +346,7 @@ class MessageFormatter:
         ]
 
         for rule, matches in sorted_rules:
-            emoji = _SEVERITY_EMOJI[rule.severity]
+            emoji = rule_emoji(rule)
             count = len(matches)
             rows = []
             for m in matches:

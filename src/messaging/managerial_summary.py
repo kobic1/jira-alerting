@@ -17,7 +17,7 @@ from datetime import datetime
 
 from src.config_loader import load_rules
 from src.ingestion.people_registry import PeopleRegistry
-from src.messaging.formatter import MessageFormatter, _SEVERITY_EMOJI, _SEVERITY_RANK
+from src.messaging.formatter import MessageFormatter, _SEVERITY_EMOJI, _SEVERITY_RANK, rule_emoji
 from src.rules.engine import RuleEngine
 
 logger = logging.getLogger(__name__)
@@ -207,7 +207,7 @@ class ManagerialSummaryReporter:
             )
             for rid, matches in ordered:
                 rule = rule_lookup[rid]
-                emoji = _SEVERITY_EMOJI[rule.severity]
+                emoji = rule_emoji(rule)
                 rows = []
                 for m in matches:
                     detail = self._formatter._render_template(rule.message_template, m).strip()

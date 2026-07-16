@@ -46,6 +46,7 @@ rules:
         role: product_manager
     group_by: reporter
     severity: high
+    emoji: "🟠"   # orange dot (overrides the severity color)
     message_template: |
       *No PM feedback for more than {role_comment_threshold} business days*
       This epic is in Validation and hasn't received a product manager comment
@@ -69,6 +70,7 @@ rules:
         value: 2
     group_by: project_lead
     severity: medium
+    emoji: "🟠"   # orange dot (overrides the severity color)
     message_template: "✅ All {children_total} child issue(s) are Done, but this epic is still in Validation · no change for {business_days_since_update} business day(s) · Status: {status} — ready to move to Done?"
 
   # ── CFB rules ───────────────────────────────────────────────────────────────

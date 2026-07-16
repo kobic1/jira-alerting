@@ -183,6 +183,8 @@ class RuleConfig:
     fallback_assignee_role: str | None = None
     # Display order in the digest (lower = appears first). Default 100.
     priority: int = 100
+    # Optional color-dot override (e.g. "🟠"). Falls back to the severity emoji.
+    emoji: str | None = None
 
 
 @dataclass
