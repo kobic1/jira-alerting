@@ -198,3 +198,28 @@ def test_live_digest_still_has_snooze_links_by_default():
     msg = fmt.format_digest(group)["message"]
     assert "Snooze 2h" in msg
     assert "Snoozed reminder" not in msg
+
+
+def test_snooze_is_isolated_per_user():
+    """A snooze on user A's card must never target user B: each card carries only
+    its own owner in the Snooze submit-data, its own recipient, and its own issues."""
+    fmt = _snooze_formatter()
+    a = _user("ua", "Alice", "alice@co.com")
+    b = _user("ub", "Bob", "bob@co.com")
+    group_a = AlertGroup(owner=a, owner_key="ua", matches=[_match(issue=_issue("AAA-1"))])
+    group_b = AlertGroup(owner=b, owner_key="ub", matches=[_match(issue=_issue("BBB-2"))])
+
+    card_a = fmt.format_digest_card(group_a)
+    card_b = fmt.format_digest_card(group_b)
+
+    # Snooze button targets only the card's own owner
+    assert card_a["card"]["actions"][0]["data"]["recipient"] == "alice@co.com"
+    assert card_b["card"]["actions"][0]["data"]["recipient"] == "bob@co.com"
+
+    # Delivery recipient and reminder content are scoped to that owner only
+    assert card_a["recipient"] == "alice@co.com"
+    assert card_b["recipient"] == "bob@co.com"
+    assert "AAA-1" in card_a["message"] and "BBB-2" not in card_a["message"]
+    assert "BBB-2" in card_b["message"] and "AAA-1" not in card_b["message"]
+    assert "bob@co.com" not in str(card_a["card"])
+    assert "alice@co.com" not in str(card_b["card"])
