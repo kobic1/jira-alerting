@@ -1,13 +1,13 @@
 name: Scheduler Test (TEMPORARY)
 
 # TEMPORARY workflow to prove the cloud scheduler fires unattended.
-# Every-minute cron so it fires as soon as GitHub picks it up. Runs PMN in
-# PREVIEW mode → all alerts go to Kobi only (no real PMN engineers spammed).
-# DELETE this file once the test has fired.
+# Every 5 minutes — GitHub's minimum honored interval for scheduled workflows
+# (a sub-5-min cron is not reliably run). Runs PMN in PREVIEW mode → all alerts
+# go to Kobi only (no real PMN engineers spammed). DELETE once the test fires.
 
 on:
   schedule:
-    - cron: '* * * * *'   # every minute (temporary)
+    - cron: '*/5 * * * *'   # every 5 minutes (GitHub minimum; temporary)
   workflow_dispatch:
 
 jobs:
