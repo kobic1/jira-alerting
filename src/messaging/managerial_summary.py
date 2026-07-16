@@ -9,7 +9,9 @@ the current live state and never interferes with the real alert pipeline.
 """
 from __future__ import annotations
 
+import json
 import logging
+import os
 from collections import defaultdict
 from datetime import datetime
 
@@ -41,6 +43,8 @@ class ManagerialSummaryReporter:
         subscribers_by_project: dict[str, list[str]],
         min_severity: str = "low",
         override_recipient: str | None = None,
+        state_path: str = ".managerial_cache.json",
+        force: bool = False,
     ):
         self._engine = engine
         self._formatter = formatter
@@ -50,6 +54,15 @@ class ManagerialSummaryReporter:
         self._subs_by_project = subscribers_by_project or {}
         self._min_rank = _SEV_RANKS.get(min_severity, 1)
         self._override = override_recipient  # send everything here instead (for testing)
+        # Once-a-day guard: records the date each subscriber last received the
+        # summary so a second run the same day skips them (prevents the duplicate
+        # you get from manually re-triggering). Pass force=True to re-send anyway.
+        # NOTE: on an ephemeral CI runner this file doesn't persist between runs,
+        # so it guards local/shared-state re-runs; the scheduled once-a-day run is
+        # never affected. Override sends (testing) bypass the guard and aren't
+        # recorded.
+        self._state_path = state_path
+        self._force = force
 
     # ------------------------------------------------------------------
 
@@ -60,25 +73,60 @@ class ManagerialSummaryReporter:
             return {"subscribers": 0, "sent": 0, "failed": 0, "alerts_total": 0}
 
         by_project, rule_lookup, total = self._collect_matches()
-        date_str = datetime.utcnow().strftime("%a %d %b %Y")
+        now = datetime.utcnow()
+        date_str = now.strftime("%a %d %b %Y")
+        today = now.strftime("%Y-%m-%d")
 
-        stats = {"subscribers": len(subscribers), "sent": 0, "failed": 0, "alerts_total": total}
+        # Guard applies only to real sends; testing overrides always go through.
+        guarded = not self._override and not self._force
+        state = self._load_state() if guarded else {}
+
+        stats = {"subscribers": len(subscribers), "sent": 0, "failed": 0, "skipped": 0, "alerts_total": total}
         if self._override:
             logger.warning("Managerial summary: override active — all messages go to %s", self._override)
+        if self._force:
+            logger.warning("Managerial summary: --force active — bypassing the once-a-day guard")
 
         for email, (name, projects) in subscribers.items():
+            if guarded and state.get(email) == today:
+                stats["skipped"] += 1
+                logger.info("Managerial summary already sent to %s today — skipping (use --force to re-send)", email)
+                continue
             target = self._override or email
             html = self._build_html(name, projects, by_project, rule_lookup, date_str)
             ok = self._sender.send({"message": html}, recipient_email=target)
             if ok:
                 stats["sent"] += 1
                 logger.info("Managerial summary sent → %s (projects=%s)", target, projects)
+                if guarded:
+                    state[email] = today
+                    self._save_state(state)
             else:
                 stats["failed"] += 1
                 logger.error("Managerial summary FAILED → %s", target)
 
         logger.info("Managerial summary complete: %s", stats)
         return stats
+
+    # ------------------------------------------------------------------
+    # Once-a-day state (separate from the alert dedup store)
+    # ------------------------------------------------------------------
+
+    def _load_state(self) -> dict[str, str]:
+        if os.path.exists(self._state_path):
+            try:
+                with open(self._state_path) as f:
+                    return json.load(f)
+            except (json.JSONDecodeError, OSError):
+                logger.warning("Could not read managerial cache; starting fresh")
+        return {}
+
+    def _save_state(self, state: dict[str, str]) -> None:
+        try:
+            with open(self._state_path, "w") as f:
+                json.dump(state, f, indent=2)
+        except OSError as exc:
+            logger.warning("Could not write managerial cache: %s", exc)
 
     # ------------------------------------------------------------------
     # Data collection

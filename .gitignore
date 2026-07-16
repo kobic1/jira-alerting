@@ -2,3 +2,5 @@
 __pycache__/
 *.pyc
 .alert_cache.json
+.managerial_cache.json
+.alert_cache.json.bak.*

@@ -163,6 +163,7 @@ def build_managerial_reporter(
     rules_path: str,
     people_path: str = "config/people.yaml",
     override_recipient: str | None = None,
+    force: bool = False,
 ) -> ManagerialSummaryReporter:
     """Construct the per-project managerial summary reporter from settings."""
     jira_cfg = settings["jira"]
@@ -200,6 +201,8 @@ def build_managerial_reporter(
         subscribers_by_project=subscribers_by_project,
         min_severity=ms_cfg.get("min_severity", alerting_cfg.get("min_severity", "low")),
         override_recipient=override_recipient,
+        state_path=alerting_cfg.get("managerial_cache_file", ".managerial_cache.json"),
+        force=force,
     )
 
 
@@ -343,6 +346,14 @@ def main() -> None:
             "address (for testing). Example: --managerial-summary-to kobi.cohen@nice.com"
         ),
     )
+    parser.add_argument(
+        "--managerial-force",
+        action="store_true",
+        help=(
+            "Re-send the managerial summary even if a subscriber already received "
+            "it today. Without this, a same-day re-run skips already-sent subscribers."
+        ),
+    )
     args = parser.parse_args()
 
     settings = load_settings(args.settings)
@@ -359,6 +370,7 @@ def main() -> None:
             rules_path=args.rules,
             people_path=args.people,
             override_recipient=args.managerial_summary_to,
+            force=args.managerial_force,
         )
         stats = reporter.run()
         print(f"\nDone: {stats}")
