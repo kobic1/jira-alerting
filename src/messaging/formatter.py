@@ -60,6 +60,9 @@ class MessageFormatter:
         group: AlertGroup,
         run_date: datetime | None = None,
         preview_for: str | None = None,
+        *,
+        snooze_links: bool = True,
+        reminder_banner: bool = False,
     ) -> dict[str, Any]:
         """Return a payload dict with both 'message' (HTML) and 'recipient' fields.
 
@@ -68,6 +71,10 @@ class MessageFormatter:
 
         preview_for: when set, prepends a visible PREVIEW banner so the reviewer
                      knows who would normally receive this message.
+        snooze_links: include per-issue "⏰ Snooze 2h" links. Turn OFF when this
+                     IS the snooze reminder — you can't re-snooze a reminder.
+        reminder_banner: prepend a "Snoozed reminder" banner (used for the 2h
+                     re-post the snooze flow sends).
         """
         date_str = (run_date or datetime.utcnow()).strftime("%a %d %b %Y")
         total = len(group.matches)
@@ -76,6 +83,8 @@ class MessageFormatter:
 
         parts: list[str] = []
 
+        if reminder_banner:
+            parts.append(self._snoozed_reminder_banner_html())
         if preview_for:
             parts.append(self._preview_banner_html(group.display_name, preview_for))
 
@@ -88,7 +97,7 @@ class MessageFormatter:
         recipient_email = group.owner.email if group.owner else None
 
         for rule, matches in by_rule:
-            parts.append(self._rule_section_html(rule, matches, recipient_email))
+            parts.append(self._rule_section_html(rule, matches, recipient_email, snooze_links=snooze_links))
 
         html = "\n".join(parts)
 
@@ -188,14 +197,24 @@ class MessageFormatter:
             "recipient": recipient_email,
             "card":      card,
             # The 2h reminder is re-posted as rich HTML (renders fully in Teams).
+            # It carries the "Snoozed reminder" banner and NO per-issue Snooze
+            # links — you can't re-snooze a reminder.
             "message":   self.format_digest(
-                group, run_date=run_date, preview_for=preview_for
+                group, run_date=run_date, preview_for=preview_for,
+                snooze_links=False, reminder_banner=True,
             )["message"],
         }
 
     # ------------------------------------------------------------------
     # HTML building blocks
     # ------------------------------------------------------------------
+
+    def _snoozed_reminder_banner_html(self) -> str:
+        return (
+            '<blockquote style="border-left:4px solid #2e7d32; padding:8px; margin:0 0 12px 0;">'
+            "✅ <strong>Snoozed reminder</strong> — here's what you snoozed:"
+            "</blockquote>"
+        )
 
     def _preview_banner_html(self, real_recipient: str, reviewer: str) -> str:
         return (
@@ -210,7 +229,8 @@ class MessageFormatter:
     _MAX_ISSUES_PER_RULE = 5
 
     def _rule_section_html(
-        self, rule: RuleConfig, matches: list[RuleMatch], recipient_email: str | None = None
+        self, rule: RuleConfig, matches: list[RuleMatch], recipient_email: str | None = None,
+        *, snooze_links: bool = True,
     ) -> str:
         emoji = _SEVERITY_EMOJI[rule.severity]
         count = len(matches)
@@ -219,7 +239,7 @@ class MessageFormatter:
         shown = matches[: self._MAX_ISSUES_PER_RULE]
         overflow = count - len(shown)
 
-        rows = "\n".join(self._issue_row_html(m, recipient_email) for m in shown)
+        rows = "\n".join(self._issue_row_html(m, recipient_email, snooze_links=snooze_links) for m in shown)
         overflow_line = (
             f'<li><em>…and <a href="{filter_url}">{overflow} more</a></em></li>'
             if overflow > 0
@@ -233,10 +253,12 @@ class MessageFormatter:
             f"<hr/>"
         )
 
-    def _issue_row_html(self, match: RuleMatch, recipient_email: str | None = None) -> str:
+    def _issue_row_html(
+        self, match: RuleMatch, recipient_email: str | None = None, *, snooze_links: bool = True
+    ) -> str:
         issue = match.issue
         detail = self._render_template(match.rule.message_template, match).strip()
-        snooze = self._snooze_link_html(issue, recipient_email)
+        snooze = self._snooze_link_html(issue, recipient_email) if snooze_links else ""
         return (
             f'<li>'
             f'<a href="{issue.url}"><strong>{issue.key}</strong></a> — {issue.summary}<br/>'

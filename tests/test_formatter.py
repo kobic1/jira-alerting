@@ -173,3 +173,28 @@ def test_multiple_rules_all_appear_in_message():
     payload = fmt.format_digest(group)
     assert "A-1" in payload["message"]
     assert "B-2" in payload["message"]
+
+
+def _snooze_formatter():
+    jira = MagicMock()
+    jira.get_filter_url.return_value = "https://example.atlassian.net/issues"
+    return MessageFormatter(jira_client=jira, snooze_flow_url="https://flow.example.com/x?api-version=1")
+
+
+def test_reminder_message_has_banner_and_no_snooze_links():
+    """The snooze flow's 2h reminder (card payload's `message`) must carry the
+    'Snoozed reminder' banner and drop the per-issue Snooze links."""
+    fmt = _snooze_formatter()
+    group = AlertGroup(owner=_user(), owner_key="u1", matches=[_match()])
+    msg = fmt.format_digest_card(group)["message"]
+    assert "Snoozed reminder" in msg          # banner present
+    assert "Snooze 2h" not in msg             # no re-snooze link on a reminder
+
+
+def test_live_digest_still_has_snooze_links_by_default():
+    """Default format_digest behaviour is unchanged — snooze links still render."""
+    fmt = _snooze_formatter()
+    group = AlertGroup(owner=_user(), owner_key="u1", matches=[_match()])
+    msg = fmt.format_digest(group)["message"]
+    assert "Snooze 2h" in msg
+    assert "Snoozed reminder" not in msg
