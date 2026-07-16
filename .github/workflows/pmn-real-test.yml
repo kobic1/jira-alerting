@@ -1,0 +1,31 @@
+name: PMN Real Alert (TEMPORARY)
+
+# TEMPORARY: fire a REAL PMN-only alert run from the cloud on demand.
+# No cron on purpose — a recurring real-alert cron would spam the PMN team every
+# interval. This is manual (workflow_dispatch) so it runs once when triggered.
+# DELETE after the test.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  pmn-real:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Send REAL PMN alerts (PMN only)
+        env:
+          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+          JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+          TEAMS_FLOW_URL: ${{ secrets.TEAMS_FLOW_URL }}
+        run: |
+          python main.py --run-once --project PMN
