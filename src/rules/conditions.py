@@ -30,10 +30,16 @@ _OPERATORS: dict[str, ConditionFn] = {
 
 # Operators that require special handling in the engine (not evaluated here)
 ROLE_AWARE_OPERATORS = {"days_since_role_comment"}
+# Operators that need to fetch an issue's child issues (engine-handled).
+CHILD_AWARE_OPERATORS = {"all_children_done"}
 
 
 def is_role_aware(operator: str) -> bool:
     return operator in ROLE_AWARE_OPERATORS
+
+
+def is_child_aware(operator: str) -> bool:
+    return operator in CHILD_AWARE_OPERATORS
 
 
 def evaluate_condition(field_value: Any, operator: str, threshold: Any) -> bool:

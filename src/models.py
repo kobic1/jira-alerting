@@ -21,6 +21,7 @@ class Severity(str, Enum):
 GROUP_BY_ASSIGNEE = "assignee"
 GROUP_BY_REPORTER = "reporter"
 GROUP_BY_NOTIFY_ROLE = "notify_role"   # fan-out: one digest per person holding notify_roles
+GROUP_BY_PROJECT_LEAD = "project_lead" # always route to the issue's project lead
 
 
 @dataclass

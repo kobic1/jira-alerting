@@ -34,6 +34,7 @@ Credentials are loaded from `/Users/Kobi.Cohen/jira-alerting/.env`:
 | 3 | CFB — Regression Field is Empty | Bug with empty Regression field 24+ hrs |
 | 3 | Production Bug — No Progress | Bug with no update 3+ days |
 | 4 | Epics Awaiting PM Feedback | Epic in Validation, no PM comment for 2+ business days |
+| 4 | Epic Complete but Not Done | Epic in Validation, ALL children Done, unchanged 2+ business days → project lead |
 
 ## Running the pipeline
 

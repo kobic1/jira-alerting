@@ -34,13 +34,14 @@ from src.models import (
     AlertGroup,
     GROUP_BY_ASSIGNEE,
     GROUP_BY_NOTIFY_ROLE,
+    GROUP_BY_PROJECT_LEAD,
     GROUP_BY_REPORTER,
     JiraIssue,
     JiraUser,
     RuleConfig,
     RuleMatch,
 )
-from src.rules.conditions import evaluate_condition, is_role_aware
+from src.rules.conditions import evaluate_condition, is_child_aware, is_role_aware
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +67,7 @@ def _business_days_between(start: datetime, end: datetime) -> int:
 _FIELD_EXTRACTORS: dict[str, callable] = {
     "age_days":            lambda issue: issue.age_days,
     "days_since_update":   lambda issue: issue.days_since_update,
+    "business_days_since_update": lambda issue: _business_days_between(issue.updated_at, datetime.utcnow()),
     "cycle_time_days":     lambda issue: issue.cycle_time_days,
     "assignee":            lambda issue: issue.assignee,
     "reporter":            lambda issue: issue.reporter,
@@ -98,6 +100,8 @@ class RuleEngine:
         # Comment cache: issue_key -> list[IssueComment]  (lives for one run)
         self._comment_cache: dict[str, list[IssueComment]] = {}
         self._project_lead_cache: dict[str, "JiraUser | None"] = {}
+        # Children cache: epic_key -> (total_children, done_children)  (per run)
+        self._children_cache: dict[str, tuple[int, int]] = {}
 
     # ------------------------------------------------------------------
     # Public entry points
@@ -107,6 +111,7 @@ class RuleEngine:
         """Run every rule and return one AlertGroup per owner."""
         self._comment_cache.clear()
         self._project_lead_cache.clear()
+        self._children_cache.clear()
         all_matches: list[RuleMatch] = []
         for rule in rules:
             all_matches.extend(self.evaluate_rule(rule))
@@ -155,6 +160,18 @@ class RuleEngine:
             ctx = self._check_conditions(rule, issue, notified_person=None)
             if ctx is not None:
                 match = RuleMatch(rule=rule, issue=issue, context=ctx)
+                # Always route to the project lead when the rule asks for it.
+                if rule.group_by == GROUP_BY_PROJECT_LEAD:
+                    lead = self._project_lead_owner(issue)
+                    if not lead:
+                        logger.warning(
+                            "Rule '%s': no project lead for %s — skipping", rule.id, issue.key
+                        )
+                        continue
+                    match.notified_person_key = lead.account_id or lead.email
+                    match.owner_override = lead
+                    matches.append(match)
+                    continue
                 # Route unassigned issues to the fallback owner if configured
                 if (
                     rule.group_by == GROUP_BY_ASSIGNEE
@@ -162,16 +179,9 @@ class RuleEngine:
                     and rule.fallback_assignee_role
                 ):
                     if rule.fallback_assignee_role == "project_lead":
-                        # Resolve project lead live from Jira (cached per project per run)
-                        lead = self._get_project_lead_cached(issue.key.split("-")[0])
+                        # Resolve the project lead (enriched with a real email).
+                        lead = self._project_lead_owner(issue)
                         if lead:
-                            # Jira's project endpoint often omits the lead's email, which
-                            # leaves the digest undeliverable. Enrich from the registry
-                            # (matched by account_id) so the owner carries a real email.
-                            if self._registry:
-                                lead_person = self._registry.resolve_jira_user(lead)
-                                if lead_person:
-                                    lead = lead_person.to_jira_user()
                             match.notified_person_key = lead.account_id or lead.email
                             match.owner_override = lead
                     elif self._registry:
@@ -259,6 +269,11 @@ class RuleEngine:
                 passed, extra_ctx = self._evaluate_role_aware_condition(
                     condition, issue, notified_person, rule
                 )
+                if not passed:
+                    return None
+                context.update(extra_ctx)
+            elif is_child_aware(operator):
+                passed, extra_ctx = self._evaluate_children_done_condition(condition, issue)
                 if not passed:
                     return None
                 context.update(extra_ctx)
@@ -380,6 +395,20 @@ class RuleEngine:
             or comment.email.lower() in identifiers
         )
 
+    def _project_lead_owner(self, issue: JiraIssue) -> "JiraUser | None":
+        """The issue's project lead as a deliverable JiraUser.
+
+        Jira's project endpoint often omits the lead's email, which leaves the
+        digest undeliverable — so enrich from the people registry (matched by
+        account_id) to carry a real email.
+        """
+        lead = self._get_project_lead_cached(issue.key.split("-")[0])
+        if lead and self._registry:
+            lead_person = self._registry.resolve_jira_user(lead)
+            if lead_person:
+                lead = lead_person.to_jira_user()
+        return lead
+
     def _get_project_lead_cached(self, project_key: str) -> "JiraUser | None":
         if project_key not in self._project_lead_cache:
             self._project_lead_cache[project_key] = self._jira.get_project_lead(project_key)
@@ -395,6 +424,49 @@ class RuleEngine:
                 logger.warning("Failed to fetch comments for %s: %s", issue_key, exc)
                 self._comment_cache[issue_key] = []
         return self._comment_cache[issue_key]
+
+    # ------------------------------------------------------------------
+    # Child-aware condition: all_children_done
+    # ------------------------------------------------------------------
+
+    def _evaluate_children_done_condition(
+        self, condition: dict, issue: JiraIssue
+    ) -> tuple[bool, dict]:
+        """Operator: all_children_done.
+
+        PASSES when the epic has at least one child issue and EVERY child is in a
+        Done status-category. An epic with no children never matches (it isn't
+        "complete"). `value: false` inverts (match when NOT all done).
+        """
+        total, done = self._children_status_cached(issue.key)
+        all_done = total > 0 and done == total
+        want = bool(condition.get("value", True))
+        extra = {
+            "children_total": total,
+            "children_done": done,
+            "children_open": total - done,
+        }
+        return (all_done == want), extra
+
+    def _children_status_cached(self, epic_key: str) -> tuple[int, int]:
+        """(total_children, done_children) for an epic. Children via `parent = KEY`."""
+        if epic_key not in self._children_cache:
+            try:
+                kids = self._jira.search_issues(f"parent = {epic_key}", max_results=200)
+            except Exception as exc:
+                logger.warning("Failed to fetch children for %s: %s", epic_key, exc)
+                kids = []
+            total = len(kids)
+            done = sum(1 for k in kids if self._is_status_done(k))
+            self._children_cache[epic_key] = (total, done)
+        return self._children_cache[epic_key]
+
+    @staticmethod
+    def _is_status_done(issue: JiraIssue) -> bool:
+        """True when the issue's status is in the Done status-category (workflow-agnostic)."""
+        status = (issue.raw.get("fields", {}) or {}).get("status", {}) or {}
+        category = (status.get("statusCategory") or {}).get("key", "")
+        return str(category).lower() == "done"
 
 
 # ---------------------------------------------------------------------------

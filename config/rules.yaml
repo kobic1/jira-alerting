@@ -51,6 +51,26 @@ rules:
       This epic is in Validation and hasn't received a product manager comment
       in {days_since_role_comment} business days (or ever). Your input is needed to unblock the team.
 
+  - id: epic_complete_not_done
+    status: Live
+    priority: 4
+    name: "Epic Complete but Not Done"
+    description: "Epic in Validation whose child issues are ALL Done and unchanged for 2+ business days — ready to close"
+    jql: 'issuetype = Epic AND status = Validation'
+    jira_filter_id: null
+    conditions:
+      # All child issues are in a Done status-category (and there is at least one).
+      - field: all_children_done
+        operator: all_children_done
+        value: true
+      # The epic itself hasn't changed in 2+ business days.
+      - field: business_days_since_update
+        operator: gte
+        value: 2
+    group_by: project_lead
+    severity: medium
+    message_template: "✅ All {children_total} child issue(s) are Done, but this epic is still in Validation · no change for {business_days_since_update} business day(s) · Status: {status} — ready to move to Done?"
+
   # ── CFB rules ───────────────────────────────────────────────────────────────
 
   - id: cfb_regression_field_empty
