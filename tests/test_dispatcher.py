@@ -6,7 +6,7 @@ import pytest
 
 from src.delivery.dispatcher import AlertDispatcher
 from src.delivery.deduplication import DeduplicationStore
-from src.delivery.teams import TeamsWebhookSender
+from src.delivery.teams import TeamsPowerAutomateSender, TeamsWebhookSender
 from src.models import AlertGroup, JiraIssue, JiraUser, RuleConfig, RuleMatch, Severity
 
 
@@ -134,3 +134,50 @@ def test_multiple_rules_in_one_digest(tmp_path):
     assert formatter.format_digest.call_count == 1
     assert sender.send.call_count == 1
     assert stats["issues_sent"] == 2
+
+
+def _card_sender():
+    """A Power Automate sender that CAN post cards (snooze flow configured)."""
+    sender = MagicMock(spec=TeamsPowerAutomateSender)
+    sender.supports_cards = True
+    sender.send.return_value = True
+    sender.send_card.return_value = True
+    return sender
+
+
+def _card_formatter():
+    fmt = MagicMock()
+    fmt.format_digest.return_value = {"recipient": "x@y.com", "message": "<b>html</b>"}
+    fmt.format_digest_card.return_value = {"recipient": "x@y.com", "card": {"t": "AdaptiveCard"}, "message": "<b>html</b>"}
+    return fmt
+
+
+def test_live_multi_recipient_never_uses_card_path(tmp_path):
+    """Safeguard: live sends must route via HTML (correctly addressed), not the
+    fixed-recipient snooze flow — even when the sender supports cards."""
+    sender = _card_sender()
+    fmt = _card_formatter()
+    dedup = DeduplicationStore(window_hours=24, store_path=str(tmp_path / "c.json"))
+    dispatcher = AlertDispatcher(sender=sender, formatter=fmt, dedup=dedup)  # no preview → live
+
+    dispatcher.dispatch([_group(owner=_user("u1", "Alice"))])
+
+    assert fmt.format_digest.call_count == 1        # HTML built
+    assert fmt.format_digest_card.call_count == 0    # card NOT built
+    assert sender.send_card.call_count == 0          # snooze flow NOT used
+    assert sender.send.call_count == 1               # HTML flow used
+
+
+def test_preview_uses_card_path_when_supported(tmp_path):
+    """In preview mode every digest goes to one reviewer, so the card path is safe."""
+    sender = _card_sender()
+    fmt = _card_formatter()
+    dedup = DeduplicationStore(window_hours=24, store_path=str(tmp_path / "c.json"))
+    reviewer = _user("rev", "Kobi")
+    dispatcher = AlertDispatcher(sender=sender, formatter=fmt, dedup=dedup, preview_recipient=reviewer)
+
+    dispatcher.dispatch([_group(owner=_user("u1", "Alice"))])
+
+    assert fmt.format_digest_card.call_count == 1    # card built
+    assert sender.send_card.call_count == 1          # snooze flow used
+    assert sender.send.call_count == 0

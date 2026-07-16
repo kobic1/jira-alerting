@@ -188,10 +188,15 @@ class AlertDispatcher:
         # In preview mode, attach the reviewer's name so the banner can show it
         preview_label = self._preview_recipient.display_name if self.is_preview else None
 
-        # When the sender can post interactive cards (Power Automate + snooze
-        # flow), deliver the Adaptive Card so the ⏰ Snooze button stays inside
-        # Teams. Otherwise fall back to the rich HTML digest.
-        if getattr(self._sender, "supports_cards", False):
+        # Deliver the interactive Adaptive Card (no-browser ⏰ Snooze) ONLY in
+        # preview mode, where every digest is redirected to a single reviewer.
+        # The snooze flow currently posts to a fixed recipient rather than the
+        # per-message `recipient`, so using it for a live multi-recipient run
+        # would send everyone's card to that one person. Until the flow binds
+        # its "Post adaptive card" step to triggerBody()?['recipient'], live
+        # sends must use the correctly-routed HTML flow (TEAMS_FLOW_URL).
+        use_card = getattr(self._sender, "supports_cards", False) and self.is_preview
+        if use_card:
             payload = self._formatter.format_digest_card(
                 group, run_date=run_date, preview_for=preview_label
             )
