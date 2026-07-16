@@ -273,20 +273,25 @@ class TeamsPowerAutomateSender:
         no-browser ⏰ Snooze button) to ``recipient``; if snoozed, after a 2h
         delay it re-posts ``message`` (rich HTML) as the reminder.
 
-        The snooze flow's OAuth trigger requires a bearer token; without one the
-        flow rejects the call, so we refuse to send rather than fail silently.
+        The snooze flow's OAuth trigger requires a bearer token. When one isn't
+        available (e.g. an ephemeral CI runner that can't do the interactive
+        device-flow login), we **fall back to the plain HTML digest** via
+        ``send()`` rather than dropping the alert — the payload already carries
+        the HTML in ``message``. The no-browser Snooze card is thus a graceful
+        upgrade wherever a token exists; delivery never fails for lack of one.
         """
         if not self._snooze_flow_url:
-            logger.error("send_card called but SNOOZE_FLOW_URL is not configured")
-            return False
+            logger.warning("send_card called but SNOOZE_FLOW_URL is unset — sending HTML digest")
+            return self.send(payload, recipient_email=recipient_email)
         token = self._bearer_token()
         if not token:
-            logger.error(
+            logger.warning(
                 "No bearer token for the snooze flow (seed ~/.jira_alerting_token.json "
-                "via an interactive login); cannot post card to %s",
+                "via an interactive login to enable the Snooze card); "
+                "falling back to HTML digest for %s",
                 recipient_email,
             )
-            return False
+            return self.send(payload, recipient_email=recipient_email)
         body = {
             "recipient": recipient_email,
             "card":      payload.get("card"),
