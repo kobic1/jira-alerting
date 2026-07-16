@@ -55,7 +55,7 @@ rules:
   - id: epic_complete_not_done
     status: Live
     priority: 4
-    name: "Epic Complete but Not Done"
+    name: "Completed Epic, Status Not Done"
     description: "Epic in Validation whose child issues are ALL Done and unchanged for 2+ business days — ready to close"
     jql: 'issuetype = Epic AND status = Validation'
     jira_filter_id: null

@@ -35,7 +35,7 @@ def _u(uid, email=None):
 
 def _rule():
     return RuleConfig(
-        id="epic_complete_not_done", name="Epic Complete but Not Done", description="d",
+        id="epic_complete_not_done", name="Completed Epic, Status Not Done", description="d",
         jql="issuetype = Epic AND status = Validation",
         conditions=[
             {"field": "all_children_done", "operator": "all_children_done", "value": True},
