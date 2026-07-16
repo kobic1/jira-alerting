@@ -360,7 +360,7 @@ def main() -> None:
         )
         stats = reporter.run()
         print(f"\nDone: {stats}")
-        return
+        return 1 if stats.get("failed", 0) else 0
 
     pipeline = build_pipeline(
         settings,
@@ -384,7 +384,15 @@ def main() -> None:
                 f"   python3 main.py --run-once\n"
                 f"   to approve and deliver to real recipients."
             )
-        return
+        # Surface delivery failures with a non-zero exit — otherwise a scheduled
+        # run that silently failed to deliver every digest still shows green.
+        if stats.get("groups_failed", 0) > 0:
+            logger.error(
+                "%d group(s) failed to deliver — exiting non-zero",
+                stats["groups_failed"],
+            )
+            return 1
+        return 0
 
     sched_cfg = settings.get("scheduler", {})
     default_cron = sched_cfg.get("cron_expression", "0 9 * * *")
@@ -411,4 +419,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

@@ -2,7 +2,11 @@ name: Daily Jira Alerts
 
 on:
   schedule:
-    - cron: '0 7 * * 1-5'  # 10:00 AM Israel time (UTC+3), weekdays only
+    # GitHub delays scheduled runs 2-4h, and the top of the hour is the least
+    # reliable slot. Fire early and off-the-hour so the (delayed) run still lands
+    # ~09:00-11:00 UTC = 12:00-14:00 Israel. Keep this to a SINGLE entry —
+    # multiple crons would trigger multiple runs and duplicate every alert.
+    - cron: '20 4 * * 1-5'  # ~07:20 Israel nominal, weekdays only
   workflow_dispatch:         # Allow manual trigger from GitHub UI
 
 jobs:
