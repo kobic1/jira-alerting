@@ -44,7 +44,13 @@ logger = logging.getLogger(__name__)
 def build_sender(teams_cfg: dict):
     """Construct the configured Teams sender (Power Automate / Graph / Webhook)."""
     if teams_cfg.get("use_power_automate"):
-        return TeamsPowerAutomateSender(flow_url=teams_cfg["power_automate"]["flow_url"])
+        return TeamsPowerAutomateSender(
+            flow_url=teams_cfg["power_automate"]["flow_url"],
+            # When set, digests go out as Adaptive Cards via this flow so the
+            # ⏰ Snooze button works inside Teams (no browser). Read from the env
+            # so an unset value just falls back to the HTML digest.
+            snooze_flow_url=os.environ.get("SNOOZE_FLOW_URL") or None,
+        )
     if teams_cfg.get("use_graph_api"):
         graph = teams_cfg["graph_api"]
         return TeamsGraphSender(

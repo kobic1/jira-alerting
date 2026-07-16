@@ -101,20 +101,38 @@ class MessageFormatter:
         self,
         group: AlertGroup,
         run_date: datetime | None = None,
+        preview_for: str | None = None,
     ) -> dict[str, Any]:
-        """Return {recipient, card} — an Adaptive Card version of the digest.
+        """Return {recipient, card, message} — an Adaptive Card version of the digest.
 
         The ⏰ Snooze button is an ``Action.Submit`` (not a URL), so clicking it
         opens no browser. It's delivered by a flow that "posts an adaptive card
         and waits for a response"; the submitted ``data.action == 'snooze'``
         tells that flow to Delay 2h and re-post the reminder — all inside Teams.
+
+        ``message`` is the rich HTML digest (from :meth:`format_digest`). The
+        snooze flow re-posts it as the 2-hour reminder, where HTML renders fully.
+
+        preview_for: when set, prepends a PREVIEW banner (both on the card and in
+                     the HTML reminder) naming who would normally receive this.
         """
         date_str = (run_date or datetime.utcnow()).strftime("%a %d %b %Y")
         total = len(group.matches)
         noun = "item" if total == 1 else "items"
         recipient_email = group.owner.email if group.owner else None
 
-        body: list[dict[str, Any]] = [
+        body: list[dict[str, Any]] = []
+        if preview_for:
+            body.append({
+                "type": "Container", "style": "warning", "bleed": True,
+                "items": [
+                    {"type": "TextBlock", "weight": "Bolder", "wrap": True,
+                     "text": "👁️ PREVIEW — not yet sent"},
+                    {"type": "TextBlock", "isSubtle": True, "spacing": "None", "wrap": True,
+                     "text": f"Real recipient: {group.display_name} · Reviewing as: {preview_for}"},
+                ],
+            })
+        body += [
             {"type": "TextBlock", "size": "Large", "weight": "Bolder", "wrap": True,
              "text": f"📋 Daily JIRA Signals — {group.display_name}"},
             {"type": "TextBlock", "isSubtle": True, "spacing": "None", "wrap": True,
@@ -169,6 +187,10 @@ class MessageFormatter:
         return {
             "recipient": recipient_email,
             "card":      card,
+            # The 2h reminder is re-posted as rich HTML (renders fully in Teams).
+            "message":   self.format_digest(
+                group, run_date=run_date, preview_for=preview_for
+            )["message"],
         }
 
     # ------------------------------------------------------------------

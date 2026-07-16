@@ -188,9 +188,17 @@ class AlertDispatcher:
         # In preview mode, attach the reviewer's name so the banner can show it
         preview_label = self._preview_recipient.display_name if self.is_preview else None
 
-        payload = self._formatter.format_digest(
-            group, run_date=run_date, preview_for=preview_label
-        )
+        # When the sender can post interactive cards (Power Automate + snooze
+        # flow), deliver the Adaptive Card so the ⏰ Snooze button stays inside
+        # Teams. Otherwise fall back to the rich HTML digest.
+        if getattr(self._sender, "supports_cards", False):
+            payload = self._formatter.format_digest_card(
+                group, run_date=run_date, preview_for=preview_label
+            )
+        else:
+            payload = self._formatter.format_digest(
+                group, run_date=run_date, preview_for=preview_label
+            )
 
         if self._dry_run:
             self._log_dry_run(group)
@@ -257,6 +265,9 @@ class AlertDispatcher:
                     group.display_name,
                 )
                 return False
+            # A card payload → post via the snooze flow (no-browser Snooze button).
+            if "card" in payload:
+                return self._sender.send_card(payload, recipient_email=email)
             return self._sender.send(payload, recipient_email=email)
 
         if isinstance(self._sender, TeamsGraphSender):

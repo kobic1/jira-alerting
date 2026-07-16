@@ -183,11 +183,22 @@ class TeamsPowerAutomateSender:
     _SCOPES = ["https://service.flow.microsoft.com//.default"]
     _TOKEN_CACHE_PATH = os.path.expanduser("~/.jira_alerting_token.json")
 
-    def __init__(self, flow_url: str, timeout: int = 30):
+    def __init__(self, flow_url: str, snooze_flow_url: str | None = None, timeout: int = 30):
         self._url = flow_url
+        # Optional second flow that "posts an adaptive card and waits for a
+        # response → Delay 2h → posts the reminder". When set, digests are sent
+        # as Adaptive Cards through it so the ⏰ Snooze button stays inside Teams
+        # (no browser). Its trigger is OAuth ("any user in my tenant"), so it
+        # must be called with a bearer token — a plain POST is rejected.
+        self._snooze_flow_url = snooze_flow_url
         self._timeout = timeout
         self._token_checked = False
         self._token: str | None = None
+
+    @property
+    def supports_cards(self) -> bool:
+        """True when a snooze flow is configured to post interactive cards."""
+        return bool(self._snooze_flow_url)
 
     def _bearer_token(self) -> str | None:
         """Return a cached MSAL access token, refreshed silently, or None.
@@ -253,4 +264,49 @@ class TeamsPowerAutomateSender:
             return False
         except requests.RequestException as exc:
             logger.error("Flow DM failed for %s: %s", recipient_email, exc)
+            return False
+
+    def send_card(self, payload: dict[str, Any], recipient_email: str) -> bool:
+        """POST an Adaptive Card to the snooze flow, which posts it and waits.
+
+        Body is {recipient, card, message}: the flow posts ``card`` (with the
+        no-browser ⏰ Snooze button) to ``recipient``; if snoozed, after a 2h
+        delay it re-posts ``message`` (rich HTML) as the reminder.
+
+        The snooze flow's OAuth trigger requires a bearer token; without one the
+        flow rejects the call, so we refuse to send rather than fail silently.
+        """
+        if not self._snooze_flow_url:
+            logger.error("send_card called but SNOOZE_FLOW_URL is not configured")
+            return False
+        token = self._bearer_token()
+        if not token:
+            logger.error(
+                "No bearer token for the snooze flow (seed ~/.jira_alerting_token.json "
+                "via an interactive login); cannot post card to %s",
+                recipient_email,
+            )
+            return False
+        body = {
+            "recipient": recipient_email,
+            "card":      payload.get("card"),
+            "message":   payload.get("message", ""),
+        }
+        try:
+            resp = requests.post(
+                self._snooze_flow_url,
+                json=body,
+                headers={"Authorization": f"Bearer {token}"},
+                timeout=self._timeout,
+            )
+            if resp.status_code in (200, 202):
+                logger.info("Snooze-flow card accepted -> %s (HTTP %d)", recipient_email, resp.status_code)
+                return True
+            logger.error(
+                "Snooze-flow card rejected for %s -- HTTP %d: %s",
+                recipient_email, resp.status_code, resp.text[:200],
+            )
+            return False
+        except requests.RequestException as exc:
+            logger.error("Snooze-flow card failed for %s: %s", recipient_email, exc)
             return False
