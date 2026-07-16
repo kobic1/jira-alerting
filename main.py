@@ -121,6 +121,18 @@ def build_pipeline(
     # Issue type filter: CLI overrides settings.yaml
     effective_type_filter = issue_type_filter or alerting_cfg.get("issue_types") or None
 
+    # Project scope: CLI --project overrides; otherwise fall back to
+    # alerting.default_projects. This is a safeguard so a bare run never fans out
+    # to EVERY Jira project — live alerting stays limited to the configured set.
+    if not project_filter:
+        project_filter = alerting_cfg.get("default_projects") or None
+        if project_filter:
+            logger.info("No --project given; using default_projects: %s", project_filter)
+        else:
+            logger.warning(
+                "No --project and no alerting.default_projects — rules will query ALL projects"
+            )
+
     if project_filter:
         logger.info("Project filter active: %s", project_filter)
     if effective_type_filter:

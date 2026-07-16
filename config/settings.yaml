@@ -37,6 +37,11 @@ scheduler:
   timezone: "UTC"
 
 alerting:
+  # Default project scope for live alerts when no --project is passed on the CLI.
+  # Safeguard so a bare run never queries EVERY Jira project. --project overrides.
+  default_projects:
+    - PMN
+    - PMSTND
   # Restrict all rules to these Jira issue types.
   # Remove or leave empty to include all types.
   issue_types:
