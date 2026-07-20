@@ -434,19 +434,21 @@ class RuleEngine:
     ) -> tuple[bool, dict]:
         """Operator: all_children_done.
 
-        PASSES when the epic has at least one child issue and EVERY child is in a
-        Done status-category. An epic with no children never matches (it isn't
-        "complete"). `value: false` inverts (match when NOT all done).
+        PASSES when the epic has NO OPEN child issues — i.e. every child is in a
+        Done status-category, OR the epic has no children at all (both mean
+        there's no unfinished work left under it). `value: false` inverts.
         """
         total, done = self._children_status_cached(issue.key)
-        all_done = total > 0 and done == total
+        no_open_children = (total - done) == 0        # all done, or zero children
         want = bool(condition.get("value", True))
+        summary = "has no child issues" if total == 0 else f"has all {total} child issue(s) Done"
         extra = {
             "children_total": total,
             "children_done": done,
             "children_open": total - done,
+            "children_summary": summary,
         }
-        return (all_done == want), extra
+        return (no_open_children == want), extra
 
     def _children_status_cached(self, epic_key: str) -> tuple[int, int]:
         """(total_children, done_children) for an epic. Children via `parent = KEY`."""

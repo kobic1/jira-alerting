@@ -70,10 +70,15 @@ def test_no_match_when_a_child_is_open():
     assert matches == []
 
 
-def test_no_match_when_epic_has_no_children():
-    eng = _engine([])                                # nothing is "complete" with 0 children
+def test_matches_when_epic_has_no_children():
+    # An epic in Validation with NO children and stale 2+ biz-days now qualifies
+    # (no open work left under it).
+    eng = _engine([])
     matches = eng._evaluate_standard_rule(_rule(), [_epic(updated_days_ago=5)])
-    assert matches == []
+    assert len(matches) == 1
+    assert matches[0].context["children_total"] == 0
+    assert matches[0].context["children_open"] == 0
+    assert "no child issues" in matches[0].context["children_summary"]
 
 
 def test_no_match_when_recently_changed():
