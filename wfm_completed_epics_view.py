@@ -71,13 +71,22 @@ def build_message() -> tuple[str, int, int]:
     return "".join(parts), total, len(by_proj)
 
 
-def main_send(recipient: str) -> None:
+def run(recipients: list[str], skip_if_empty: bool = False) -> None:
+    """Build the view once and send to each recipient (same org-wide content)."""
     message, total, nproj = build_message()
+    if skip_if_empty and total == 0:
+        print(f"No completed epics today — skipping send (--skip-if-empty). "
+              f"Recipients skipped: {', '.join(recipients)}")
+        return
     sender = main.build_sender(load_settings("config/settings.yaml")["teams"])
-    ok = sender.send({"message": message}, recipient_email=recipient)
-    print(f"'WFM Organization — Completed Epics Awaiting Closure' -> {recipient}: "
-          f"{'sent ✓' if ok else 'FAILED ✗'} ({total} epic(s) across {nproj} project(s))")
+    for r in recipients:
+        ok = sender.send({"message": message}, recipient_email=r)
+        print(f"'WFM Organization — Completed Epics Awaiting Closure' -> {r}: "
+              f"{'sent ✓' if ok else 'FAILED ✗'} ({total} epic(s) across {nproj} project(s))")
 
 
 if __name__ == "__main__":
-    main_send(sys.argv[1] if len(sys.argv) > 1 else DEFAULT_RECIPIENT)
+    argv = sys.argv[1:]
+    skip = "--skip-if-empty" in argv
+    recipients = [a for a in argv if not a.startswith("--")] or [DEFAULT_RECIPIENT]
+    run(recipients, skip_if_empty=skip)
