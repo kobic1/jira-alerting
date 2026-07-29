@@ -69,6 +69,8 @@ rules:
         operator: gte
         value: 2
     group_by: project_lead
+    also_notify_roles:
+      - epic_closure_watcher
     severity: medium
     emoji: "🟠"   # orange dot (overrides the severity color)
     message_template: "✅ This epic {children_summary} but is still in Validation · no change for {business_days_since_update} business day(s) · Status: {status} — ready to move to Done?"

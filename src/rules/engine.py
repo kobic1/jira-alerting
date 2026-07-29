@@ -91,12 +91,15 @@ class RuleEngine:
         max_issues_per_rule: int = 100,
         project_filter: list[str] | None = None,
         issue_type_filter: list[str] | None = None,
+        project_fallback_recipients: dict[str, str] | None = None,
     ):
         self._jira = jira_client
         self._registry = people_registry
         self._max = max_issues_per_rule
         self._project_filter = project_filter        # e.g. ["PMN", "CXDV"]
         self._issue_type_filter = issue_type_filter  # e.g. ["Epic", "Bug", "Story"]
+        # Per-project fallback recipients (overrides Jira project lead when set).
+        self._project_fallback_recipients: dict[str, str] = project_fallback_recipients or {}
         # Comment cache: issue_key -> list[IssueComment]  (lives for one run)
         self._comment_cache: dict[str, list[IssueComment]] = {}
         self._project_lead_cache: dict[str, "JiraUser | None"] = {}
@@ -145,6 +148,17 @@ class RuleEngine:
         else:
             matches = self._evaluate_standard_rule(rule, issues)
 
+        # Fan out extra copies to also_notify_roles recipients (CC-style).
+        if rule.also_notify_roles and self._registry and matches:
+            extra_people = self._registry.get_by_roles(rule.also_notify_roles)
+            primary_matches = list(matches)  # snapshot to avoid mutating while iterating
+            for person in extra_people:
+                for m in primary_matches:
+                    extra = RuleMatch(rule=m.rule, issue=m.issue, context=m.context)
+                    extra.notified_person_key = person.jira_account_id or person.email
+                    extra.owner_override = person.to_jira_user()
+                    matches.append(extra)
+
         logger.info("Rule '%s': %d match(es)", rule.id, len(matches))
         return matches
 
@@ -178,7 +192,18 @@ class RuleEngine:
                     and issue.assignee is None
                     and rule.fallback_assignee_role
                 ):
-                    if rule.fallback_assignee_role == "project_lead":
+                    project_key = issue.key.split("-")[0]
+                    project_fallback_email = self._project_fallback_recipients.get(project_key)
+                    if project_fallback_email and self._registry:
+                        # Per-project fallback takes priority over the Jira project lead.
+                        person = next(
+                            (p for p in self._registry._people if p.email == project_fallback_email),
+                            None,
+                        )
+                        if person:
+                            match.notified_person_key = person.jira_account_id or person.email
+                            match.owner_override = person.to_jira_user()
+                    elif rule.fallback_assignee_role == "project_lead":
                         # Resolve the project lead (enriched with a real email).
                         lead = self._project_lead_owner(issue)
                         if lead:

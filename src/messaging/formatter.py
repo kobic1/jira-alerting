@@ -263,11 +263,10 @@ class MessageFormatter:
     ) -> str:
         issue = match.issue
         detail = self._render_template(match.rule.message_template, match).strip()
-        snooze = self._snooze_link_html(issue, recipient_email) if snooze_links else ""
         return (
             f'<li>'
             f'<a href="{issue.url}"><strong>{issue.key}</strong></a> — {issue.summary}<br/>'
-            f'<small>{detail}{snooze}</small>'
+            f'<small>{detail}</small>'
             f'</li>'
         )
 

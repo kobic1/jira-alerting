@@ -23,7 +23,7 @@ from src.rules.engine import RuleEngine
 import main
 
 DEFAULT_RECIPIENT = "kobi.cohen@nice.com"
-WFM_PROJECTS = ["PMN", "WFM", "CXINT", "EEM", "WFMDEVOPS", "CXCO", "CXSUP"]
+WFM_PROJECTS = ["PMN", "WFM", "CXWFM", "CXINT", "EEM", "WFMDEVOPS", "CXCO", "CXSUP"]
 
 
 def build_message() -> tuple[str, int, int]:
@@ -32,12 +32,22 @@ def build_message() -> tuple[str, int, int]:
     rule = next(r for r in load_rules("config/rules.yaml") if r.id == "epic_complete_not_done")
     eng = RuleEngine(jira_client=jc, people_registry=load_people("config/people.yaml"),
                      project_filter=WFM_PROJECTS, issue_type_filter=["Epic"], max_issues_per_rule=500)
-    matches = [m for g in eng.evaluate_all([rule]) for m in g.matches]
+    all_matches = [m for g in eng.evaluate_all([rule]) for m in g.matches]
+
+    # Deduplicate by issue key — also_notify_roles fan-out creates one match per
+    # watcher per epic; this view is org-wide so each epic should appear only once.
+    seen: set[str] = set()
+    matches = []
+    for m in all_matches:
+        if m.issue.key not in seen:
+            seen.add(m.issue.key)
+            matches.append(m)
 
     by_proj: dict[str, list] = {}
     for m in matches:
         by_proj.setdefault(m.issue.key.split("-")[0], []).append(m)
 
+    base_url = j["base_url"].rstrip("/")
     date_str = datetime.utcnow().strftime("%a %d %b %Y")
     total = len(matches)
     parts = [
@@ -55,15 +65,19 @@ def build_message() -> tuple[str, int, int]:
             rows = []
             for m in by_proj[proj]:
                 c = m.context
-                lead = m.owner.display_name if m.owner else "—"
                 rows.append(
                     f'<li><a href="{m.issue.url}"><strong>{m.issue.key}</strong></a> — '
                     f'{_html.escape(m.issue.summary)}<br/>'
-                    f'<small>👤 Project lead: {_html.escape(lead)} · '
+                    f'<small>'
                     f'✅ {c["children_done"]}/{c["children_total"]} children Done · '
-                    f'no change {c["business_days_since_update"]} business day(s)</small></li>'
+                    f'no change {c["business_days_since_update"]} business day(s)'
+                    f'</small></li>'
                 )
-            parts.append(f"<h3>📁 {proj} &nbsp;<small>({len(by_proj[proj])})</small></h3><ul>{''.join(rows)}</ul>")
+            import urllib.parse
+            keys = ", ".join(m.issue.key for m in by_proj[proj])
+            jql = urllib.parse.quote(f"key in ({keys})")
+            all_items_link = f'<a href="{base_url}/issues/?jql={jql}">All Items</a>'
+            parts.append(f"<h3>📁 {proj} &nbsp;<small>({len(by_proj[proj])}) — {all_items_link}</small></h3><ul>{''.join(rows)}</ul>")
         clear = [p for p in WFM_PROJECTS if p not in by_proj]
         if clear:
             parts.append(f"<hr/><p><small>No completed-epic alerts in: {', '.join(clear)}</small></p>")

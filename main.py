@@ -144,6 +144,7 @@ def build_pipeline(
         max_issues_per_rule=int(jira_cfg.get("max_results", 100)),
         project_filter=project_filter,
         issue_type_filter=effective_type_filter,
+        project_fallback_recipients=alerting_cfg.get("project_fallback_recipients") or {},
     )
     dispatcher = AlertDispatcher(
         sender=sender,
@@ -176,6 +177,7 @@ def build_managerial_reporter(
     people_path: str = "config/people.yaml",
     override_recipient: str | None = None,
     force: bool = False,
+    project_filter: list[str] | None = None,
 ) -> ManagerialSummaryReporter:
     """Construct the per-project managerial summary reporter from settings."""
     jira_cfg = settings["jira"]
@@ -193,14 +195,14 @@ def build_managerial_reporter(
     sender = build_sender(settings["teams"])
 
     subscribers_by_project = ms_cfg.get("subscribers_by_project", {}) or {}
-    # Evaluate across the union of all subscribed projects (one Jira pass for everyone).
-    all_projects = sorted(subscribers_by_project.keys())
+    # CLI --project overrides the subscriber list; fall back to all subscribed projects.
+    effective_projects = project_filter or sorted(subscribers_by_project.keys())
 
     engine = RuleEngine(
         jira_client=jira_client,
         people_registry=people_registry,
         max_issues_per_rule=int(jira_cfg.get("max_results", 100)),
-        project_filter=all_projects or None,
+        project_filter=effective_projects or None,
         issue_type_filter=alerting_cfg.get("issue_types") or None,
     )
 
@@ -215,6 +217,7 @@ def build_managerial_reporter(
         override_recipient=override_recipient,
         state_path=alerting_cfg.get("managerial_cache_file", ".managerial_cache.json"),
         force=force,
+        project_filter=project_filter,
     )
 
 
@@ -383,6 +386,7 @@ def main() -> None:
             people_path=args.people,
             override_recipient=args.managerial_summary_to,
             force=args.managerial_force,
+            project_filter=args.projects or None,
         )
         stats = reporter.run()
         print(f"\nDone: {stats}")

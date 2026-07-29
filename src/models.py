@@ -178,6 +178,10 @@ class RuleConfig:
     # When group_by == "notify_role": the digest is sent to every person whose
     # role appears in this list, regardless of who the Jira assignee is.
     notify_roles: list[str] = field(default_factory=list)
+    # Extra recipients who always get a copy of this rule's matches, on top of
+    # whoever the primary group_by routes to. Useful for managers who want a heads-up
+    # on a specific rule without being the primary owner.
+    also_notify_roles: list[str] = field(default_factory=list)
     # When group_by == "assignee" and the issue has no assignee, route to the
     # first person in people.yaml who holds this role (e.g. "engineering_manager").
     fallback_assignee_role: str | None = None

@@ -68,6 +68,7 @@ def load_rules(path: str) -> list[RuleConfig]:
                 status=raw_status,
                 jira_filter_id=r.get("jira_filter_id"),
                 notify_roles=notify_roles,
+                also_notify_roles=r.get("also_notify_roles", []),
                 fallback_assignee_role=r.get("fallback_assignee_role"),
                 priority=int(r.get("priority", 100)),
                 emoji=r.get("emoji"),

@@ -62,6 +62,10 @@ alerting:
   # Issues that were already alerted within this window are suppressed
   deduplication_window_hours: 24
   deduplication_file: ".alert_cache.json"
+  # Per-project fallback recipient when an issue has no assignee/reporter to route to.
+  # Overrides the Jira project lead fallback for the listed projects.
+  project_fallback_recipients:
+    PMN: "nikita.agrawal@nice.com"
 
 # ── Managerial summary ────────────────────────────────────────────────────────
 # A daily per-project rollup of all LIVE alerts, addressed to managers/subscribers.

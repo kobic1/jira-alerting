@@ -45,13 +45,18 @@ class ManagerialSummaryReporter:
         override_recipient: str | None = None,
         state_path: str = ".managerial_cache.json",
         force: bool = False,
+        project_filter: list[str] | None = None,
     ):
         self._engine = engine
         self._formatter = formatter
         self._sender = sender
         self._registry = registry
         self._rules_path = rules_path
-        self._subs_by_project = subscribers_by_project or {}
+        # When a project_filter is active, only include subscribers for those projects.
+        if project_filter:
+            self._subs_by_project = {k: v for k, v in (subscribers_by_project or {}).items() if k in project_filter}
+        else:
+            self._subs_by_project = subscribers_by_project or {}
         self._min_rank = _SEV_RANKS.get(min_severity, 1)
         self._override = override_recipient  # send everything here instead (for testing)
         # Once-a-day guard: records the date each subscriber last received the
@@ -68,6 +73,13 @@ class ManagerialSummaryReporter:
 
     def run(self) -> dict:
         subscribers = self._invert_subscribers()
+        # When an override recipient is set but no subscribers exist for the filtered
+        # projects, synthesize a single entry so the override still gets a message.
+        if not subscribers and self._override:
+            projects = sorted(self._subs_by_project.keys()) or sorted(
+                self._engine._project_filter or []
+            )
+            subscribers = {self._override: (self._override.split("@")[0], projects)}
         if not subscribers:
             logger.warning("Managerial summary: no subscribers configured — nothing to send")
             return {"subscribers": 0, "sent": 0, "failed": 0, "alerts_total": 0}

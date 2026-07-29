@@ -15,11 +15,30 @@
 
 people:
   # ── Engineering ─────────────────────────────────────────────────────────────
+  - display_name: "Nikita Agrawal"
+    email: "nikita.agrawal@nice.com"
+    jira_account_id: "611cfa8c41ff95006a8fbb24"
+    roles:
+      - qa_lead
+
   - display_name: "Kobi Cohen"
     email: "kobi.cohen@nice.com"
     jira_account_id: "712020:d06199c4-a838-4a07-b0d5-6c752e24721a"
     roles:
       - engineering_manager
+
+  # ── WFM Org leadership — receive completed-epic closure alerts ───────────────
+  - display_name: "Yoav Shulman"
+    email: "yoav.shulman@nice.com"
+    jira_account_id: "712020:b48b2452-ff92-418e-b656-6a21675493af"
+    roles:
+      - epic_closure_watcher
+
+  - display_name: "Idan Kaizerman"
+    email: "idan.kaizerman@nice.com"
+    jira_account_id: "712020:1445c4c6-dbef-497e-8604-4b2b6a74a4ea"
+    roles:
+      - epic_closure_watcher
 
   # ── Managerial summary subscribers ───────────────────────────────────────────
   # Listed here so the daily managerial summary greeting shows their display name.
