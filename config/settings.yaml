@@ -98,6 +98,10 @@ managerial_summary:
       - ben.johnson@nice.com
       - ashish.sheth@nice.com
       - pradeep.sant@nice.com
+    CXSUP:
+      - prashant.deshpande@nice.com
+    CXCO:
+      - prashant.deshpande@nice.com
 
 logging:
   level: "INFO"
