@@ -15,6 +15,8 @@ python3 main.py --dry-run --run-once
 # Start the daily scheduler (cron: 0 9 * * * by default)
 python3 main.py
 """
+
+# Created by Kobi cohen
 from __future__ import annotations
 
 import argparse
