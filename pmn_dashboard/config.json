@@ -1,0 +1,32 @@
+{
+  "release": "26.4",
+  "subject_prefix": "PMN Release Status",
+  "release_start_date": "2026-07-15",
+  "release_end_date": "2026-10-06",
+  "sprint_boundaries": [
+    "2026-07-15",
+    "2026-08-05",
+    "2026-08-26",
+    "2026-09-16",
+    "2026-10-06"
+  ],
+  "_forecast_note": "forecast_override is the committed-scope forecast (73), used instead of the 5-release regression because the Bugs Bunnies + Guardians teams left. Set to null to fall back to the regression.",
+  "forecast_override": 73,
+  "release_history": {
+    "25.3": 34,
+    "25.4": 38,
+    "26.1": 29,
+    "26.2": 82,
+    "26.3": 85
+  },
+  "release_order": [
+    "25.3",
+    "25.4",
+    "26.1",
+    "26.2",
+    "26.3"
+  ],
+  "_first_send_date_note": "Manager sends are suppressed before this date. Kobi asked for the distribution to start Mon Aug 10 2026; the cron alone would have fired Thu Aug 6.",
+  "first_send_date": "2026-08-10",
+  "_recipients_note": "Recipient addresses are NOT in this file -- the repo is public. Managers come from the PMN_DASHBOARD_RECIPIENTS secret (semicolon-separated); the test audience comes from PMN_DASHBOARD_TEST_RECIPIENT."
+}

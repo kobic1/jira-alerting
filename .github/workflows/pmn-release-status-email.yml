@@ -1,0 +1,82 @@
+name: PMN Release Status Email
+
+# Emails the PMN (Performance Management Native) release-status KPI dashboard to the
+# PMN management distribution list every Monday and Thursday. Runs on GitHub's cloud —
+# independent of anyone's computer.
+#
+# PMN only. Delivery, Quality and both AI-adoption sections are pulled live from Jira
+# on every run. EDCT is the one figure that cannot be refreshed here — it lives in the
+# R&D Efficiency Power BI report behind interactive Microsoft SSO, so it is read from
+# pmn_dashboard/powerbi_snapshot.json and its chart caption always states the as-of
+# date. Refresh that snapshot from an interactive Claude session (the
+# pmn-kpi-dashboard skill) at least monthly.
+#
+# Nothing is emailed unless pmn_dashboard/verify_data.py passes: it checks per-section
+# freshness, that the current month is present in every monthly series, and every
+# AI/EDCT figure against the Power BI snapshot. A failure fails the job instead of
+# sending a wrong dashboard.
+
+on:
+  schedule:
+    # Mon & Thu 05:00 UTC = 08:00 Israel. GitHub can delay scheduled runs by a few
+    # hours under load — this is a digest, so that is acceptable.
+    - cron: '0 5 * * 1,4'
+  workflow_dispatch:
+    inputs:
+      audience:
+        description: 'Who receives it'
+        type: choice
+        default: test-kobi-only
+        options:
+          - test-kobi-only
+          - send-to-managers
+          - build-only
+
+jobs:
+  pmn-release-status:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r pmn_dashboard/requirements.txt
+
+      - name: Build, verify and send the PMN dashboard
+        env:
+          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+          JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+          POWER_AUTOMATE_EMAIL_URL: ${{ secrets.POWER_AUTOMATE_EMAIL_URL }}
+          PMN_DASHBOARD_RECIPIENTS: ${{ secrets.PMN_DASHBOARD_RECIPIENTS }}
+          PMN_DASHBOARD_TEST_RECIPIENT: ${{ secrets.PMN_DASHBOARD_TEST_RECIPIENT }}
+          INPUT_AUDIENCE: ${{ github.event.inputs.audience }}
+        run: |
+          # Scheduled (cron) runs carry no input and go to the managers — that is the
+          # point of the schedule. Manual runs default to the Kobi-only test copy.
+          case "${INPUT_AUDIENCE:-}" in
+            send-to-managers) AUDIENCE=managers ;;
+            build-only)       AUDIENCE=none ;;
+            test-kobi-only)   AUDIENCE=test ;;
+            "")               AUDIENCE=managers ;;
+            *)                echo "Unknown audience '$INPUT_AUDIENCE'" >&2; exit 1 ;;
+          esac
+          echo "Audience: $AUDIENCE"
+          python pmn_dashboard/build_and_send.py --audience "$AUDIENCE"
+
+      - name: Upload the built dashboard
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pmn-dashboard-${{ github.run_id }}
+          path: |
+            pmn_dashboard/build/*.html
+            pmn_dashboard/build/data.json
+          if-no-files-found: warn
+          retention-days: 30
