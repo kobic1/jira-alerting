@@ -1,4 +1,7 @@
 {
+  "project": "PMN",
+  "project_label": "PMN (Performance Management Native)",
+  "powerbi_snapshot": "powerbi_snapshot.json",
   "release": "26.4",
   "subject_prefix": "PMN Release Status",
   "release_start_date": "2026-07-15",
@@ -28,5 +31,11 @@
   ],
   "_first_send_date_note": "Manager sends are suppressed before this date. Kobi asked for the distribution to start Mon Aug 10 2026; the cron alone would have fired Thu Aug 6.",
   "first_send_date": "2026-08-10",
-  "_recipients_note": "Recipient addresses are NOT in this file -- the repo is public. Managers come from the PMN_DASHBOARD_RECIPIENTS secret (semicolon-separated); the test audience comes from PMN_DASHBOARD_TEST_RECIPIENT."
+  "_recipients_note": "Recipient addresses are NOT in this file -- the repo is public. Managers come from the PMN_DASHBOARD_RECIPIENTS secret (semicolon-separated); the test audience comes from PMN_DASHBOARD_TEST_RECIPIENT.",
+  "forecast_basis": "capacity-adjusted for the departed teams",
+  "ai_epics_first_month": 1,
+  "ai_epics_month_style": "short",
+  "sections": {
+    "ai_fields_adoption": true
+  }
 }

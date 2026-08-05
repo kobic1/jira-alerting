@@ -1,0 +1,35 @@
+{
+  "_what": "CXCO's numbers from the 'R&D Efficiency' Power BI app that cannot be pulled headlessly. `edct_series` feeds the EDCT chart; `ai_usage_trend` is the reconciliation baseline the verification gate checks the live Jira AI numbers against.",
+  "_how_to_refresh": "Interactive Claude session, Claude-in-Chrome. EDCT page: PROJECT = CXone Coaching, RESOLUTION DATE = 2026, TEAM = All, IMPLEMENTED BY AI AGENT = Yes -> read MANAGERIAL VIEW / KPI-TREND monthly columns. For ai_usage_trend use the '% Issues Developed by AI Agents' page with the same PROJECT, ISSUE TYPE = Epic, STATUS = All, and IMPLEMENTED BY AI AGENT = All -> read AI Label (numerator) and Total (denominator) per month. Filters do not persist across page navigation -- re-verify all of them on every page.",
+  "_targets": "CXCO draws the same >=16 (all epics) / >=10 (AI-assisted) target lines as PMN -- Kobi's decision to keep them identical across dashboards. The report itself shows a single org target of <=42; the dashboards intentionally use the stricter pair.",
+
+  "last_synced": "2026-08-05",
+  "_synced_note": "Pulled live 2026-08-05; the report's own Last Synced Time (UTC) was 8/5/2026 6:42 PM. EDCT is unchanged from the 2026-08-04 pull (22/18/13/18/13, headline 17).",
+
+  "edct_series": {
+    "months": ["2026/04", "2026/05", "2026/06", "2026/07", "2026/08*"],
+    "values": [22, 18, 13, 18, 13],
+    "target_all": 16,
+    "target_ai": 10,
+    "as_of": "2026-08-05"
+  },
+
+  "edct": {
+    "2026/04": 22,
+    "2026/05": 18,
+    "2026/06": 13,
+    "2026/07": 18,
+    "2026/08": 13
+  },
+  "_edct_headline": 17,
+
+  "ai_usage_trend": {
+    "2026/03": {"ai": 0, "total": 2},
+    "2026/04": {"ai": 3, "total": 11},
+    "2026/05": {"ai": 4, "total": 6},
+    "2026/06": {"ai": 4, "total": 5},
+    "2026/07": {"ai": 18, "total": 27},
+    "2026/08": {"ai": 5, "total": 9}
+  },
+  "_ai_usage_note": "The report's July figure is 18 of 27 (66.67%). The 2026-08-04 CXCO dashboard showed 15 of 27 (55.6%) because it counted the AGENTIC_AI_CODE label instead of the cf[15229] Implemented-by-AI-Agent field -- the same undercount found in PMN on 2026-08-05."
+}

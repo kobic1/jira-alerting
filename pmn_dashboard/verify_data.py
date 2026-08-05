@@ -70,9 +70,15 @@ def norm_month(label, default_year):
 def check_freshness(data, report, today):
     """Every section must carry today's as_of. A carried-forward section is a WARN;
     the caption must then say so, which is what the as_of date is for."""
+    omitted = data.get("omitted_sections", {})
     for section in ("delivery", "edct", "quality", "ai_epics_pct", "ai_fields_adoption"):
         if section not in data:
-            record("FAIL", f"freshness:{section}", "section missing from data.json entirely")
+            # A section left out on purpose is fine -- but it has to SAY so, the same way
+            # omit_current_month does. Silence stays a failure.
+            if section in omitted:
+                record("PASS", f"freshness:{section}", f"omitted by decision: {omitted[section]}")
+            else:
+                record("FAIL", f"freshness:{section}", "section missing from data.json entirely")
             continue
         as_of = data[section].get("as_of")
         if as_of is None:
@@ -269,7 +275,7 @@ def main():
     check_internal(data, today)
 
     width = max(len(c) for _, c, _ in results) + 2
-    print(f"\nPMN KPI dashboard data verification — {today}\n" + "=" * 78)
+    print(f"\nKPI dashboard data verification — {today}\n" + "=" * 78)
     for status, check, detail in results:
         print(f"  [{status:4}] {check:<{width}} {detail}")
     fails = [r for r in results if r[0] == "FAIL"]

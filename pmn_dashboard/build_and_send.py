@@ -45,7 +45,6 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 HERE = Path(__file__).resolve().parent
-PROJECT = "PMN"
 
 # Field IDs (per-instance, stable across releases -- see the skill's jira_field_ids.md)
 CF_IMPLEMENTED_BY_AI = "cf[15229]"   # "Implemented by AI Agent" (Yes/No)
@@ -117,10 +116,10 @@ def d(s: str | None) -> dt.date | None:
 # ------------------------------------------------------------------- data sections
 
 def build_delivery(j: Jira, cfg: dict, today: dt.date) -> dict:
-    rel = cfg["release"]
+    proj, rel = cfg["project"], cfg["release"]
     start = d(cfg["release_start_date"])
     issues = j.search(
-        f'project = {PROJECT} AND fixVersion = "{rel}" AND issuetype = Epic AND status = Done',
+        f'project = {proj} AND fixVersion = "{rel}" AND issuetype = Epic AND status = Done',
         ["resolutiondate"])
     days = []
     for i in issues:
@@ -141,7 +140,7 @@ def build_delivery(j: Jira, cfg: dict, today: dt.date) -> dict:
     }
 
 
-def build_quality(j: Jira, today: dt.date, weeks_back: int = 9) -> dict:
+def build_quality(j: Jira, cfg: dict, today: dt.date, weeks_back: int = 9) -> dict:
     """Weekly created / resolved / running-open for the full bug backlog, excluding
     Accessibility. The `resolution is EMPTY` clause is what makes the opening
     baseline trustworthy -- without it, long-open bugs created before the window
@@ -149,7 +148,11 @@ def build_quality(j: Jira, today: dt.date, weeks_back: int = 9) -> dict:
     this_monday = today - dt.timedelta(days=today.weekday())
     weeks = [this_monday - dt.timedelta(days=7 * i) for i in range(weeks_back - 1, -1, -1)]
     ws = weeks[0]
-    jql = (f'project = {PROJECT} AND issuetype = Bug AND summary !~ "\\"[Accessibility]*\\"" '
+    # Extra per-project exclusions (e.g. CXCO's DWP_Accessibility_Defect batch) keep this
+    # chart on the same basis as the [Accessibility] summary exclusion.
+    extra = cfg.get("bug_exclusions", "")
+    jql = (f'project = {cfg["project"]} AND issuetype = Bug '
+           f'AND summary !~ "\\"[Accessibility]*\\"" {extra} '
            f'AND (created >= "{ws}" OR resolutiondate >= "{ws}" OR resolution is EMPTY)')
     issues = j.search(jql, ["created", "resolutiondate"])
     recs = [(d(i["fields"].get("created")), d(i["fields"].get("resolutiondate")))
@@ -173,17 +176,19 @@ def build_quality(j: Jira, today: dt.date, weeks_back: int = 9) -> dict:
     }
 
 
-def build_ai_epics(j: Jira, today: dt.date) -> dict:
+def build_ai_epics(j: Jira, cfg: dict, today: dt.date) -> dict:
     """Reproduces the Power BI '% AI Usage Trend' chart. AI epics are the
     cf[15229] Implemented-by-AI-Agent FIELD, not the AGENTIC_AI_CODE label --
     the label undercounts (July 2026: 20 by label vs 23 by field, and the
     report says 23)."""
     months, totals, ais = [], [], []
-    for m in range(1, today.month + 1):
+    full = cfg.get("ai_epics_month_style", "short") == "full"
+    for m in range(cfg.get("ai_epics_first_month", 1), today.month + 1):
         lo, hi = month_bounds(today.year, m)
         window = f'AND resolutiondate >= "{lo}" AND resolutiondate < "{hi}"'
-        base = f'project = {PROJECT} AND issuetype = Epic AND status = Done {window}'
-        months.append(MONTHS_SHORT[m - 1] + ("*" if m == today.month else ""))
+        base = f'project = {cfg["project"]} AND issuetype = Epic AND status = Done {window}'
+        label = calendar.month_name[m] if full else MONTHS_SHORT[m - 1]
+        months.append(label + ("*" if m == today.month else ""))
         totals.append(j.count(base))
         ais.append(j.count(f'{base} AND {CF_IMPLEMENTED_BY_AI} = "Yes"'))
     return {"_definition": "Total = epics Done resolved in month; AI = same with "
@@ -192,7 +197,7 @@ def build_ai_epics(j: Jira, today: dt.date) -> dict:
             "as_of": today.isoformat()}
 
 
-def build_ai_fields(j: Jira, today: dt.date, first_month: int = 4) -> dict:
+def build_ai_fields(j: Jira, cfg: dict, today: dt.date, first_month: int = 4) -> dict:
     """Marked-as-AI vs having-the-PR-URL-metric, monthly. Scope matches the Power BI
     'AI Fields Adaption' page filters: ALL issue types, ALL statuses, by resolved
     date -- so the metrics series sums to the report's quarterly '# Issues with PR
@@ -202,8 +207,9 @@ def build_ai_fields(j: Jira, today: dt.date, first_month: int = 4) -> dict:
         lo, hi = month_bounds(today.year, m)
         window = f'resolutiondate >= "{lo}" AND resolutiondate < "{hi}"'
         months.append(calendar.month_name[m] + ("*" if m == today.month else ""))
-        marked.append(j.count(f'project = {PROJECT} AND {CF_IMPLEMENTED_BY_AI} = "Yes" AND {window}'))
-        metrics.append(j.count(f'project = {PROJECT} AND {CF_PR_URL} is not EMPTY AND {window}'))
+        proj = cfg["project"]
+        marked.append(j.count(f'project = {proj} AND {CF_IMPLEMENTED_BY_AI} = "Yes" AND {window}'))
+        metrics.append(j.count(f'project = {proj} AND {CF_PR_URL} is not EMPTY AND {window}'))
     return {"_definition": "Marked as AI = cf[15229] = Yes; having metrics = cf[15262] PR-URL "
                            "populated. All issue types, all statuses, by resolved date.",
             "months": months, "marked_ai": marked, "new_metrics": metrics,
@@ -217,8 +223,10 @@ def pct(a: int, b: int) -> float:
 
 
 def build_meta(data: dict, cfg: dict, snapshot: dict, today: dt.date) -> dict:
+    proj = cfg["project"]
     dl, ql = data["delivery"], data["quality"]
-    ae, af = data["ai_epics_pct"], data["ai_fields_adoption"]
+    ae = data["ai_epics_pct"]
+    af = data.get("ai_fields_adoption")      # absent where the project hasn't instrumented it
     ed = data.get("edct")
 
     day_of_release = (today - d(cfg["release_start_date"])).days
@@ -228,38 +236,42 @@ def build_meta(data: dict, cfg: dict, snapshot: dict, today: dt.date) -> dict:
     # AI headline figures use the last CLOSED month -- a 3-day-old month is not a rate.
     closed = -2 if len(ae["months"]) > 1 else -1
     ae_pct_closed = pct(ae["ai_epics"][closed], ae["total_epics"][closed])
-    af_closed = -2 if len(af["months"]) > 1 else -1
-    af_pct_closed = pct(af["new_metrics"][af_closed], af["marked_ai"][af_closed])
     ae_cur = pct(ae["ai_epics"][-1], ae["total_epics"][-1])
-    af_cur = pct(af["new_metrics"][-1], af["marked_ai"][-1])
+    if af:
+        af_closed = -2 if len(af["months"]) > 1 else -1
+        af_pct_closed = pct(af["new_metrics"][af_closed], af["marked_ai"][af_closed])
+        af_cur = pct(af["new_metrics"][-1], af["marked_ai"][-1])
 
     peak = max(ql["open_trend"])
     peak_week = ql["weeks"][ql["open_trend"].index(peak)]
     edct_stale = ed and ed.get("as_of") != today.isoformat()
+    ed_closed = -2 if ed and len(ed["months"]) > 1 else -1
 
     stats = [
         {"num": str(dl["current_delivered"]), "lbl": "Epics delivered"},
         {"num": str(forecast), "lbl": "Forecast epics"},
-        {"num": str(ed["values"][closed]) if ed else "—", "lbl": "EDCT days"},
+        {"num": str(ed["values"][ed_closed]) if ed else "&mdash;", "lbl": "EDCT days"},
         {"num": str(ql["open_trend"][-1]), "lbl": "Open bugs"},
-        {"num": f"{af_pct_closed:.1f}%", "lbl": "AI field adoption"},
-        {"num": f"{ae_pct_closed:.1f}%", "lbl": "Epics by AI"},
+        {"num": f"{af_pct_closed:.1f}%" if af else "&mdash;", "lbl": "AI field adoption"},
+        {"num": f"{ae_pct_closed:.1f}%", "lbl": f"Epics by AI ({ae['months'][closed].rstrip('*')[:3]})"},
     ]
 
     sections = [{
         "file": "chart_delivery.png", "rail": "#1F3A5F", "tint": "rgba(31,58,95,0.06)",
         "seclabel": "Delivery", "title": "Epic Delivery &mdash; Actual vs. Expected",
         "caption": (f"{dl['current_delivered']} delivered on day {day_of_release} of the release, "
-                    f"forecast {forecast} (capacity-adjusted for the departed teams). "
-                    f"Last epic closed {last_close.strftime('%b %-d')}. Live from PMN Jira."),
+                    f"forecast {forecast} ({cfg.get('forecast_basis', 'committed scope')}). "
+                    f"Last epic closed {last_close.strftime('%b %-d')}. Live from {proj} Jira."),
     }]
     if ed:
         sections.append({
             "file": "chart_edct.png", "rail": "#C77700", "tint": "rgba(199,119,0,0.06)",
             "seclabel": "Efficiency", "title": "Epic Dev Cycle Time (EDCT)",
-            "caption": (f"Monthly avg cycle time, Implemented-by-AI-Agent view "
-                        f"(target &le;{ed.get('target_all', 10)} days). "
-                        f"{ed['months'][closed]} closed at {ed['values'][closed]} days. "
+            "caption": (f"Monthly avg cycle time, Implemented-by-AI-Agent view, against the "
+                        f"&le;{ed.get('target_all', 10)}"
+                        + (f" (all epics) / &le;{ed['target_ai']} (AI-assisted) targets. "
+                           if ed.get("target_ai") is not None else " day target. ")
+                        + f"{ed['months'][ed_closed]} closed at {ed['values'][ed_closed]} days. "
                         + (f"<b>Carried forward &mdash; as of {ed['as_of']}.</b> EDCT comes from the "
                            f"R&amp;D Efficiency Power BI report, which needs an interactive "
                            f"sign-in and cannot be refreshed by this automated run; every other "
@@ -270,10 +282,11 @@ def build_meta(data: dict, cfg: dict, snapshot: dict, today: dt.date) -> dict:
     sections.append({
         "file": "chart_quality.png", "rail": "#2E9E4F", "tint": "rgba(46,158,79,0.06)",
         "seclabel": "Quality", "title": "Open Bugs Trend &mdash; Full Backlog",
-        "caption": (f"{ql['open_trend'][-1]} open, full-project backlog (excl. Accessibility) "
-                    f"&mdash; against a {peak_week} peak of {peak}. The week of {ql['weeks'][-1]} "
-                    f"is still running ({ql['created'][-1]} opened, {ql['resolved'][-1]} closed). "
-                    f"Live from PMN Jira."),
+        "caption": (f"{ql['open_trend'][-1]} open, full-project backlog (excl. Accessibility"
+                    + (f"; {cfg['bug_exclusions_note']}" if cfg.get("bug_exclusions_note") else "")
+                    + f") &mdash; against a {peak_week} peak of {peak}. The week of "
+                    f"{ql['weeks'][-1]} is still running ({ql['created'][-1]} opened, "
+                    f"{ql['resolved'][-1]} closed). Live from {proj} Jira."),
     })
     sections.append({
         "file": "chart_ai_epics_pct.png", "rail": "#7B4FC7", "tint": "rgba(123,79,199,0.06)",
@@ -283,30 +296,33 @@ def build_meta(data: dict, cfg: dict, snapshot: dict, today: dt.date) -> dict:
                     f"{ae['months'][-1]} stands at {ae['ai_epics'][-1]} of {ae['total_epics'][-1]} "
                     f"({ae_cur:.0f}%) month-to-date. Counted the way the report counts it &mdash; "
                     f"the Implemented-by-AI-Agent field, not the AGENTIC_AI_CODE label. "
-                    f"Live from PMN Jira."),
+                    f"Live from {proj} Jira."),
     })
-    sections.append({
-        "file": "chart_ai_fields_adoption.png", "rail": "#7B4FC7", "tint": "rgba(123,79,199,0.06)",
-        "seclabel": "AI Adoption", "title": "AI Fields Adoption (All Issue Types)",
-        "caption": (f"{af_pct_closed:.1f}% of AI-marked issues carry the PR-URL metric field in "
-                    f"{af['months'][af_closed]} ({af['new_metrics'][af_closed]} of "
-                    f"{af['marked_ai'][af_closed]}); {af_cur:.1f}% in {af['months'][-1]} so far "
-                    f"({af['new_metrics'][-1]} of {af['marked_ai'][-1]}). Scope matches the "
-                    f"report's AI Fields Adaption page &mdash; all issue types and statuses by "
-                    f"resolved date. Live from PMN Jira."),
-    })
+    if af:
+        sections.append({
+            "file": "chart_ai_fields_adoption.png", "rail": "#7B4FC7", "tint": "rgba(123,79,199,0.06)",
+            "seclabel": "AI Adoption", "title": "AI Fields Adoption (All Issue Types)",
+            "caption": (f"{af_pct_closed:.1f}% of AI-marked issues carry the PR-URL metric field in "
+                        f"{af['months'][af_closed]} ({af['new_metrics'][af_closed]} of "
+                        f"{af['marked_ai'][af_closed]}); {af_cur:.1f}% in {af['months'][-1]} so far "
+                        f"({af['new_metrics'][-1]} of {af['marked_ai'][-1]}). Scope matches the "
+                        f"report's AI Fields Adaption page &mdash; all issue types and statuses by "
+                        f"resolved date. Live from {proj} Jira."),
+        })
 
+    live = "Delivery, Quality and both AI sections" if af else "Delivery, Quality and % Epics by AI"
     return {
-        "release": cfg["release"], "project": PROJECT,
+        "release": cfg["release"], "project": proj,
         "as_of_label": today.strftime("%b %-d %Y"),
         "stats": stats, "sections": sections,
-        "footer": (f"Built from PMN Jira by a scheduled GitHub Actions run on "
-                   f"{today.strftime('%b %-d %Y')}, and verified before sending: per-section "
+        "footer": (f"Built from {cfg.get('project_label', proj)} Jira on "
+                   f"{today.strftime('%b %-d %Y')}, and verified before delivery: per-section "
                    f"freshness, the current month present in every series, and every AI/EDCT "
                    f"figure reconciled against the R&amp;D Efficiency Power BI report "
-                   f"(snapshot {snapshot.get('last_synced', 'n/a')}). Delivery, Quality and both "
-                   f"AI sections are live Jira; EDCT is the Power BI snapshot, dated in its "
-                   f"caption above."),
+                   f"(snapshot {snapshot.get('last_synced', 'n/a')}). {live} are live Jira; "
+                   f"EDCT is from Power BI, dated in its caption above. Months marked * are "
+                   f"partial."
+                   + (f" {cfg['footer_note']}" if cfg.get("footer_note") else "")),
     }
 
 
@@ -326,10 +342,13 @@ def main() -> int:
                          "'test' = Kobi only; 'none' = build and verify, send nothing.")
     ap.add_argument("--outdir", default=None)
     ap.add_argument("--today", default=None, help="override today's date (YYYY-MM-DD)")
+    ap.add_argument("--config", default="config.json",
+                    help="project config in this directory (config.json = PMN, "
+                         "config_cxco.json = CXCO)")
     args = ap.parse_args()
 
-    cfg = json.load(open(HERE / "config.json"))
-    snapshot = json.load(open(HERE / "powerbi_snapshot.json"))
+    cfg = json.load(open(HERE / args.config))
+    snapshot = json.load(open(HERE / cfg["powerbi_snapshot"]))
     today = d(args.today) if args.today else dt.date.today()
     out = Path(args.outdir or (HERE / "build"))
     (out / "charts").mkdir(parents=True, exist_ok=True)
@@ -340,16 +359,24 @@ def main() -> int:
               f"Scheduled start date not reached -- exiting cleanly.")
         return 0
 
-    print(f"PMN dashboard build — {today}  (audience: {args.audience})")
+    print(f"{cfg['project']} dashboard build — {today}  (audience: {args.audience})")
     j = Jira()
 
     data = {
         "release": cfg["release"],
         "delivery": build_delivery(j, cfg, today),
-        "quality": build_quality(j, today),
-        "ai_epics_pct": build_ai_epics(j, today),
-        "ai_fields_adoption": build_ai_fields(j, today),
+        "quality": build_quality(j, cfg, today),
+        "ai_epics_pct": build_ai_epics(j, cfg, today),
     }
+    # AI Fields Adoption is omitted where the project hasn't instrumented the code-metric
+    # fields at all (CXCO) -- an empty chart says less than no chart. Record the omission
+    # so the verifier sees a stated decision rather than a missing section.
+    if cfg.get("sections", {}).get("ai_fields_adoption", True):
+        data["ai_fields_adoption"] = build_ai_fields(j, cfg, today)
+    else:
+        data["omitted_sections"] = {
+            "ai_fields_adoption": cfg.get("footer_note")
+            or f"{cfg['project']} has not instrumented the AI code-metric fields"}
 
     # EDCT: snapshot only. Flag the current month as a deliberate omission when the
     # snapshot predates it, so the verifier warns instead of failing the build.
@@ -375,7 +402,7 @@ def main() -> int:
 
     meta_path = out / "meta.json"
     json.dump(build_meta(data, cfg, snapshot, today), open(meta_path, "w"), indent=2)
-    html = out / f"PMN {cfg['release']} Release Dashboard.html"
+    html = out / f"{cfg['project']} {cfg['release']} Release Dashboard.html"
     run([sys.executable, HERE / "assemble_dashboard_html.py", "--charts-dir", out / "charts",
          "--meta", meta_path, "--out", html], "HTML assembly")
 

@@ -1,0 +1,43 @@
+{
+  "project": "CXCO",
+  "project_label": "CXCO (CXone Coaching)",
+  "powerbi_snapshot": "powerbi_snapshot_cxco.json",
+  "release": "26.4",
+  "subject_prefix": "CXCO Release Status",
+  "release_start_date": "2026-07-15",
+  "release_end_date": "2026-10-06",
+  "sprint_boundaries": [
+    "2026-07-15",
+    "2026-08-05",
+    "2026-08-26",
+    "2026-09-16",
+    "2026-10-06"
+  ],
+  "_forecast_note": "CXCO ramped from a near-zero baseline (3/1/2/11/35 epics per release), so the 5-release regression under-predicts (it gives 33). Kobi set the forecast to committed 26.4 scope = 43.",
+  "forecast_override": 43,
+  "forecast_basis": "committed scope",
+  "release_history": {
+    "25.3": 3,
+    "25.4": 1,
+    "26.1": 2,
+    "26.2": 11,
+    "26.3": 35
+  },
+  "release_order": [
+    "25.3",
+    "25.4",
+    "26.1",
+    "26.2",
+    "26.3"
+  ],
+  "_bug_exclusions_note": "A batch of 65 accessibility defects labelled DWP_Accessibility_Defect was filed on 2026-08-04. They are excluded to stay on the same basis as this chart's [Accessibility] summary exclusion -- counting them read 76 open instead of 11. `OR labels is EMPTY` matters: a bare `labels !=` also drops every issue with no labels at all.",
+  "bug_exclusions": "AND (labels != DWP_Accessibility_Defect OR labels is EMPTY)",
+  "bug_exclusions_note": "and the <code>DWP_Accessibility_Defect</code> batch",
+  "_ai_note": "Starts in January like PMN, so the full-year ramp is visible and every month the Power BI report has can be reconciled. An April start was arbitrary -- the report shows 2 epics resolved in March 2026, so 'history starts in April' was not true.",
+  "ai_epics_first_month": 1,
+  "ai_epics_month_style": "short",
+  "sections": {
+    "ai_fields_adoption": false
+  },
+  "footer_note": "AI Fields Adoption is omitted &mdash; CXCO hasn't instrumented those code-metric fields yet."
+}
