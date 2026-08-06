@@ -113,13 +113,28 @@ def d(s: str | None) -> dt.date | None:
     return dt.date(int(s[0:4]), int(s[5:7]), int(s[8:10])) if s else None
 
 
+def team_clauses(cfg: dict) -> tuple[str, str]:
+    """JQL fragments that narrow a config to one team, or ('', '') for a whole project.
+
+    PMN records the team in two different fields depending on issue type -- cf[10040]
+    'Epic Team\\s' on epics, cf[10098] 'Team Name' on stories/bugs/tasks -- so a
+    single-field filter silently drops most of the data. `any_clause` is the union
+    (epics and all-issue-type series); `bug_clause` is what bugs actually carry.
+    """
+    ts = cfg.get("team_scope")
+    if not ts:
+        return "", ""
+    return f' AND {ts["any_clause"]}', f' AND {ts["bug_clause"]}'
+
+
 # ------------------------------------------------------------------- data sections
 
 def build_delivery(j: Jira, cfg: dict, today: dt.date) -> dict:
     proj, rel = cfg["project"], cfg["release"]
     start = d(cfg["release_start_date"])
+    team, _ = team_clauses(cfg)
     issues = j.search(
-        f'project = {proj} AND fixVersion = "{rel}" AND issuetype = Epic AND status = Done',
+        f'project = {proj} AND fixVersion = "{rel}" AND issuetype = Epic AND status = Done{team}',
         ["resolutiondate"])
     days = []
     for i in issues:
@@ -127,6 +142,14 @@ def build_delivery(j: Jira, cfg: dict, today: dt.date) -> dict:
         if rd:
             days.append(max(0, (rd - start).days))
     days.sort()
+    scope: dict = {}
+    if cfg.get("team_scope"):
+        # For a single team the in-flight breakdown is the story -- "1 of 22" alone
+        # reads as a stall when five epics are mid-development.
+        for i in j.search(f'project = {proj} AND fixVersion = "{rel}" AND issuetype = Epic{team}',
+                          ["status"]):
+            name = ((i.get("fields") or {}).get("status") or {}).get("name", "Unknown")
+            scope[name] = scope.get(name, 0) + 1
     return {
         "release_history": cfg["release_history"],
         "release_order": cfg["release_order"],
@@ -136,6 +159,7 @@ def build_delivery(j: Jira, cfg: dict, today: dt.date) -> dict:
         "sprint_boundaries": cfg["sprint_boundaries"],
         "days_into_release_delivered": days,
         "forecast_override": cfg.get("forecast_override"),
+        "scope_breakdown": scope,
         "as_of": today.isoformat(),
     }
 
@@ -151,8 +175,9 @@ def build_quality(j: Jira, cfg: dict, today: dt.date, weeks_back: int = 9) -> di
     # Extra per-project exclusions (e.g. CXCO's DWP_Accessibility_Defect batch) keep this
     # chart on the same basis as the [Accessibility] summary exclusion.
     extra = cfg.get("bug_exclusions", "")
+    _, team = team_clauses(cfg)
     jql = (f'project = {cfg["project"]} AND issuetype = Bug '
-           f'AND summary !~ "\\"[Accessibility]*\\"" {extra} '
+           f'AND summary !~ "\\"[Accessibility]*\\"" {extra}{team} '
            f'AND (created >= "{ws}" OR resolutiondate >= "{ws}" OR resolution is EMPTY)')
     issues = j.search(jql, ["created", "resolutiondate"])
     recs = [(d(i["fields"].get("created")), d(i["fields"].get("resolutiondate")))
@@ -183,10 +208,11 @@ def build_ai_epics(j: Jira, cfg: dict, today: dt.date) -> dict:
     report says 23)."""
     months, totals, ais = [], [], []
     full = cfg.get("ai_epics_month_style", "short") == "full"
+    team, _ = team_clauses(cfg)
     for m in range(cfg.get("ai_epics_first_month", 1), today.month + 1):
         lo, hi = month_bounds(today.year, m)
         window = f'AND resolutiondate >= "{lo}" AND resolutiondate < "{hi}"'
-        base = f'project = {cfg["project"]} AND issuetype = Epic AND status = Done {window}'
+        base = f'project = {cfg["project"]} AND issuetype = Epic AND status = Done{team} {window}'
         label = calendar.month_name[m] if full else MONTHS_SHORT[m - 1]
         months.append(label + ("*" if m == today.month else ""))
         totals.append(j.count(base))
@@ -203,13 +229,14 @@ def build_ai_fields(j: Jira, cfg: dict, today: dt.date, first_month: int = 4) ->
     date -- so the metrics series sums to the report's quarterly '# Issues with PR
     ID'. Narrowing this to Done Stories/Bugs understates it badly."""
     months, marked, metrics = [], [], []
+    team, _ = team_clauses(cfg)
     for m in range(first_month, today.month + 1):
         lo, hi = month_bounds(today.year, m)
         window = f'resolutiondate >= "{lo}" AND resolutiondate < "{hi}"'
         months.append(calendar.month_name[m] + ("*" if m == today.month else ""))
         proj = cfg["project"]
-        marked.append(j.count(f'project = {proj} AND {CF_IMPLEMENTED_BY_AI} = "Yes" AND {window}'))
-        metrics.append(j.count(f'project = {proj} AND {CF_PR_URL} is not EMPTY AND {window}'))
+        marked.append(j.count(f'project = {proj}{team} AND {CF_IMPLEMENTED_BY_AI} = "Yes" AND {window}'))
+        metrics.append(j.count(f'project = {proj}{team} AND {CF_PR_URL} is not EMPTY AND {window}'))
     return {"_definition": "Marked as AI = cf[15229] = Yes; having metrics = cf[15262] PR-URL "
                            "populated. All issue types, all statuses, by resolved date.",
             "months": months, "marked_ai": marked, "new_metrics": metrics,
@@ -242,26 +269,54 @@ def build_meta(data: dict, cfg: dict, snapshot: dict, today: dt.date) -> dict:
         af_pct_closed = pct(af["new_metrics"][af_closed], af["marked_ai"][af_closed])
         af_cur = pct(af["new_metrics"][-1], af["marked_ai"][-1])
 
+    team = (cfg.get("team_scope") or {}).get("name")
     peak = max(ql["open_trend"])
     peak_week = ql["weeks"][ql["open_trend"].index(peak)]
     edct_stale = ed and ed.get("as_of") != today.isoformat()
     ed_closed = -2 if ed and len(ed["months"]) > 1 else -1
 
+    # Without EDCT the third card would be a dead em-dash; for a team cut the count of
+    # epics actually moving is the more useful number in that slot.
+    sb = dl.get("scope_breakdown") or {}
+    if ed:
+        third = {"num": str(ed["values"][ed_closed]), "lbl": "EDCT days"}
+    elif sb:
+        third = {"num": str(sb.get("In Progress", 0) + sb.get("Validation", 0)),
+                 "lbl": "In dev / validation"}
+    else:
+        third = {"num": "&mdash;", "lbl": "EDCT days"}
+
     stats = [
         {"num": str(dl["current_delivered"]), "lbl": "Epics delivered"},
-        {"num": str(forecast), "lbl": "Forecast epics"},
-        {"num": str(ed["values"][ed_closed]) if ed else "&mdash;", "lbl": "EDCT days"},
+        {"num": str(forecast), "lbl": "Target epics" if team else "Forecast epics"},
+        third,
         {"num": str(ql["open_trend"][-1]), "lbl": "Open bugs"},
         {"num": f"{af_pct_closed:.1f}%" if af else "&mdash;", "lbl": "AI field adoption"},
         {"num": f"{ae_pct_closed:.1f}%", "lbl": f"Epics by AI ({ae['months'][closed].rstrip('*')[:3]})"},
     ]
 
+    # Where a team is small, the in-flight breakdown is the story: "1 of 22" on its own
+    # reads as a stall when five epics are mid-development.
+    scope_bit = ""
+    if dl.get("scope_breakdown"):
+        order = ["In Progress", "Validation", "Ready for Dev", "In Definition", "New"]
+        phrase = {"In Progress": "in development", "Validation": "in validation",
+                  "Ready for Dev": "ready for dev", "In Definition": "in definition",
+                  "New": "not started"}
+        sb = dl["scope_breakdown"]
+        parts = [f"{sb[s]} {phrase[s]}" for s in order if sb.get(s)]
+        if parts:
+            scope_bit = f" Behind it: {', '.join(parts)}."
+
     sections = [{
         "file": "chart_delivery.png", "rail": "#1F3A5F", "tint": "rgba(31,58,95,0.06)",
-        "seclabel": "Delivery", "title": "Epic Delivery &mdash; Actual vs. Expected",
+        "seclabel": "Delivery",
+        "title": "Epic Delivery &mdash; Actual vs. " + ("Target" if team else "Expected"),
         "caption": (f"{dl['current_delivered']} delivered on day {day_of_release} of the release, "
-                    f"forecast {forecast} ({cfg.get('forecast_basis', 'committed scope')}). "
-                    f"Last epic closed {last_close.strftime('%b %-d')}. Live from {proj} Jira."),
+                    f"against {forecast} ({cfg.get('forecast_basis', 'committed scope')})."
+                    + (f" Last epic closed {last_close.strftime('%b %-d')}."
+                       if dl["days_into_release_delivered"] else "")
+                    + scope_bit + f" Live from {proj} Jira."),
     }]
     if ed:
         sections.append({
@@ -281,8 +336,11 @@ def build_meta(data: dict, cfg: dict, snapshot: dict, today: dt.date) -> dict:
         })
     sections.append({
         "file": "chart_quality.png", "rail": "#2E9E4F", "tint": "rgba(46,158,79,0.06)",
-        "seclabel": "Quality", "title": "Open Bugs Trend &mdash; Full Backlog",
-        "caption": (f"{ql['open_trend'][-1]} open, full-project backlog (excl. Accessibility"
+        "seclabel": "Quality",
+        "title": f"Open Bugs Trend &mdash; {team}" if team else "Open Bugs Trend &mdash; Full Backlog",
+        "caption": (f"{ql['open_trend'][-1]} open "
+                    + (f"{team} bugs (excl. Accessibility" if team
+                       else "in the full-project backlog (excl. Accessibility")
                     + (f"; {cfg['bug_exclusions_note']}" if cfg.get("bug_exclusions_note") else "")
                     + f") &mdash; against a {peak_week} peak of {peak}. The week of "
                     f"{ql['weeks'][-1]} is still running ({ql['created'][-1]} opened, "
@@ -293,8 +351,13 @@ def build_meta(data: dict, cfg: dict, snapshot: dict, today: dt.date) -> dict:
         "seclabel": "AI Adoption", "title": "% Epics Developed by AI Agents",
         "caption": (f"{ae_pct_closed:.0f}% of epics AI-developed in {ae['months'][closed]} "
                     f"({ae['ai_epics'][closed]} of {ae['total_epics'][closed]}); "
-                    f"{ae['months'][-1]} stands at {ae['ai_epics'][-1]} of {ae['total_epics'][-1]} "
-                    f"({ae_cur:.0f}%) month-to-date. Counted the way the report counts it &mdash; "
+                    # A month with no resolved epics has no rate -- "0 of 0 (0%)" reads as
+                    # a collapse in adoption when it only means nothing has closed yet.
+                    + (f"no epics resolved yet in {ae['months'][-1]}. "
+                       if not ae["total_epics"][-1] else
+                       f"{ae['months'][-1]} stands at {ae['ai_epics'][-1]} of "
+                       f"{ae['total_epics'][-1]} ({ae_cur:.0f}%) month-to-date. ")
+                    + f"Counted the way the report counts it &mdash; "
                     f"the Implemented-by-AI-Agent field, not the AGENTIC_AI_CODE label. "
                     f"Live from {proj} Jira."),
     })
@@ -304,24 +367,39 @@ def build_meta(data: dict, cfg: dict, snapshot: dict, today: dt.date) -> dict:
             "seclabel": "AI Adoption", "title": "AI Fields Adoption (All Issue Types)",
             "caption": (f"{af_pct_closed:.1f}% of AI-marked issues carry the PR-URL metric field in "
                         f"{af['months'][af_closed]} ({af['new_metrics'][af_closed]} of "
-                        f"{af['marked_ai'][af_closed]}); {af_cur:.1f}% in {af['months'][-1]} so far "
-                        f"({af['new_metrics'][-1]} of {af['marked_ai'][-1]}). Scope matches the "
+                        f"{af['marked_ai'][af_closed]}); "
+                        # Denominator can legitimately be 0 early in a month, which would
+                        # otherwise print an impossible "1 of 0".
+                        + (f"no AI-marked issues resolved yet in {af['months'][-1]}. "
+                           if not af["marked_ai"][-1] else
+                           f"{af_cur:.1f}% in {af['months'][-1]} so far "
+                           f"({af['new_metrics'][-1]} of {af['marked_ai'][-1]}). ")
+                        + f"Scope matches the "
                         f"report's AI Fields Adaption page &mdash; all issue types and statuses by "
                         f"resolved date. Live from {proj} Jira."),
         })
 
     live = "Delivery, Quality and both AI sections" if af else "Delivery, Quality and % Epics by AI"
+    scope_label = (f"{cfg.get('project_label', proj)} Jira, {team} team"
+                   if team else f"{cfg.get('project_label', proj)} Jira")
+    if ed:
+        gate = (f"verified before delivery: per-section freshness, the current month present in "
+                f"every series, and every AI/EDCT figure reconciled against the R&amp;D Efficiency "
+                f"Power BI report (snapshot {snapshot.get('last_synced', 'n/a')}). {live} are live "
+                f"Jira; EDCT is from Power BI, dated in its caption above.")
+    else:
+        # Team-scoped EDCT lives behind the Power BI TEAM filter, which needs an
+        # interactive sign-in -- say so rather than shipping a stale or invented figure.
+        gate = (f"verified before delivery: per-section freshness and the current month present in "
+                f"every series. {live} are live Jira. <b>Epic Dev Cycle Time is not included:</b> "
+                f"team-scoped EDCT is only available from the R&amp;D Efficiency Power BI report, "
+                f"which needs an interactive sign-in and cannot be read by this automated run.")
     return {
         "release": cfg["release"], "project": proj,
         "as_of_label": today.strftime("%b %-d %Y"),
         "stats": stats, "sections": sections,
-        "footer": (f"Built from {cfg.get('project_label', proj)} Jira on "
-                   f"{today.strftime('%b %-d %Y')}, and verified before delivery: per-section "
-                   f"freshness, the current month present in every series, and every AI/EDCT "
-                   f"figure reconciled against the R&amp;D Efficiency Power BI report "
-                   f"(snapshot {snapshot.get('last_synced', 'n/a')}). {live} are live Jira; "
-                   f"EDCT is from Power BI, dated in its caption above. Months marked * are "
-                   f"partial."
+        "footer": (f"Built from {scope_label} on {today.strftime('%b %-d %Y')}, and {gate} "
+                   f"Months marked * are partial."
                    + (f" {cfg['footer_note']}" if cfg.get("footer_note") else "")),
     }
 
@@ -406,19 +484,32 @@ def main() -> int:
     if cfg.get("sections", {}).get("ai_fields_adoption", True):
         data["ai_fields_adoption"] = build_ai_fields(j, cfg, today)
     else:
-        data["omitted_sections"] = {
-            "ai_fields_adoption": cfg.get("footer_note")
-            or f"{cfg['project']} has not instrumented the AI code-metric fields"}
+        data.setdefault("omitted_sections", {})["ai_fields_adoption"] = (
+            cfg.get("footer_note")
+            or f"{cfg['project']} has not instrumented the AI code-metric fields")
 
     # EDCT: snapshot only. Flag the current month as a deliberate omission when the
     # snapshot predates it, so the verifier warns instead of failing the build.
-    edct = dict(snapshot["edct_series"])
-    if not any(str(m).rstrip("*").endswith(f"/{today.month:02d}") for m in edct["months"]):
-        edct["omit_current_month"] = (f"EDCT is a Power BI figure requiring interactive sign-in; "
-                                      f"snapshot is from {edct.get('as_of')}")
-    data["edct"] = edct
+    # The committed snapshot is whole-project, so a team-scoped config cannot use it --
+    # those configs set sections.edct false and the section is omitted by decision.
+    if cfg.get("sections", {}).get("edct", True):
+        edct = dict(snapshot["edct_series"])
+        if not any(str(m).rstrip("*").endswith(f"/{today.month:02d}") for m in edct["months"]):
+            edct["omit_current_month"] = (f"EDCT is a Power BI figure requiring interactive sign-in; "
+                                          f"snapshot is from {edct.get('as_of')}")
+        data["edct"] = edct
+    else:
+        data.setdefault("omitted_sections", {})["edct"] = (
+            "team-scoped Epic Dev Cycle Time is only available behind the R&D Efficiency "
+            "Power BI TEAM filter, which needs an interactive sign-in")
 
     report_values = {k: v for k, v in snapshot.items() if k != "edct_series"}
+    if cfg.get("team_scope"):
+        # The snapshot's EDCT / AI figures are whole-project. Reconciling a single team's
+        # numbers against them would be comparing different populations, so those checks
+        # are dropped to SKIP rather than made to pass by loosening a tolerance.
+        report_values = {k: v for k, v in report_values.items()
+                         if k not in ("edct", "ai_usage_trend", "issues_with_pr_id")}
 
     data_path, report_path = out / "data.json", out / "report_values.json"
     json.dump(data, open(data_path, "w"), indent=2)
@@ -434,7 +525,8 @@ def main() -> int:
 
     meta_path = out / "meta.json"
     json.dump(build_meta(data, cfg, snapshot, today), open(meta_path, "w"), indent=2)
-    html = out / f"{cfg['project']} {cfg['release']} Release Dashboard.html"
+    label = f"{cfg['project']} {cfg['team_scope']['name']}" if cfg.get("team_scope") else cfg["project"]
+    html = out / f"{label} {cfg['release']} Release Dashboard.html"
     run([sys.executable, HERE / "assemble_dashboard_html.py", "--charts-dir", out / "charts",
          "--meta", meta_path, "--out", html], "HTML assembly")
 

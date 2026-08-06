@@ -3,11 +3,17 @@ name: Release Status Emails
 # Emails the release-status KPI dashboards to their management distribution lists
 # every Monday and Thursday. Runs on GitHub's cloud — independent of anyone's computer.
 #
-#   PMN  (Performance Management Native) -> PMN_DASHBOARD_RECIPIENTS
-#   CXCO (CXone Coaching)                -> CXCO_DASHBOARD_RECIPIENTS
+#   PMN       (Performance Management Native) -> PMN_DASHBOARD_RECIPIENTS
+#   CXCO      (CXone Coaching)                -> CXCO_DASHBOARD_RECIPIENTS
+#   ASCENDERS (PMN, Ascenders/Wallboards team) -> ASCENDERS_DASHBOARD_RECIPIENTS
 #
-# The two projects run as independent matrix jobs: if one fails, the other still
-# sends. Each is built live from the Jira REST API. EDCT is the one figure that
+# The Ascenders job is a team-scoped cut of PMN. It has no EDCT section: that figure
+# only exists behind the Power BI TEAM filter, and the committed snapshot is
+# whole-project, so config_ascenders.json omits the section by decision rather than
+# showing a number that describes a different population.
+#
+# The three dashboards run as independent matrix jobs: if one fails, the others still
+# send. Each is built live from the Jira REST API. EDCT is the one figure that
 # cannot be refreshed here — it lives in the R&D Efficiency Power BI report behind
 # interactive Microsoft SSO — so it comes from a committed snapshot whose as-of date
 # is always stated in the chart caption. Refresh those snapshots from an interactive
@@ -36,11 +42,12 @@ on:
       project:
         description: 'Which dashboard(s)'
         type: choice
-        default: both
+        default: all
         options:
-          - both
+          - all
           - pmn
           - cxco
+          - ascenders
 
 jobs:
   dashboard:
@@ -48,7 +55,7 @@ jobs:
     strategy:
       fail-fast: false        # one project failing must not cancel the other
       matrix:
-        project: [pmn, cxco]
+        project: [pmn, cxco, ascenders]
     name: ${{ matrix.project }}
     steps:
       - name: Skip project not selected for this manual run
@@ -56,8 +63,8 @@ jobs:
         env:
           WANTED: ${{ github.event.inputs.project }}
         run: |
-          WANTED="${WANTED:-both}"
-          if [ "$WANTED" != "both" ] && [ "$WANTED" != "${{ matrix.project }}" ]; then
+          WANTED="${WANTED:-all}"
+          if [ "$WANTED" != "all" ] && [ "$WANTED" != "${{ matrix.project }}" ]; then
             echo "run=false" >> "$GITHUB_OUTPUT"
             echo "Manual run selected '$WANTED' — skipping ${{ matrix.project }}."
           else
@@ -87,12 +94,14 @@ jobs:
           FLOW_URL: ${{ secrets.POWER_AUTOMATE_EMAIL_URL }}
           PMN_RCPT: ${{ secrets.PMN_DASHBOARD_RECIPIENTS }}
           CXCO_RCPT: ${{ secrets.CXCO_DASHBOARD_RECIPIENTS }}
+          ASC_RCPT: ${{ secrets.ASCENDERS_DASHBOARD_RECIPIENTS }}
         run: |
           MISSING=""
           [ -n "$FLOW_URL" ] || MISSING="$MISSING POWER_AUTOMATE_EMAIL_URL"
           case "${{ matrix.project }}" in
             pmn)  [ -n "$PMN_RCPT" ]  || MISSING="$MISSING PMN_DASHBOARD_RECIPIENTS" ;;
             cxco) [ -n "$CXCO_RCPT" ] || MISSING="$MISSING CXCO_DASHBOARD_RECIPIENTS" ;;
+            ascenders) [ -n "$ASC_RCPT" ] || MISSING="$MISSING ASCENDERS_DASHBOARD_RECIPIENTS" ;;
           esac
           if [ -n "$MISSING" ]; then
             echo "::error::Missing repo secret(s):$MISSING — set them in Settings → Secrets and variables → Actions. Nothing was sent."
@@ -109,6 +118,7 @@ jobs:
           POWER_AUTOMATE_EMAIL_URL: ${{ secrets.POWER_AUTOMATE_EMAIL_URL }}
           PMN_DASHBOARD_RECIPIENTS: ${{ secrets.PMN_DASHBOARD_RECIPIENTS }}
           CXCO_DASHBOARD_RECIPIENTS: ${{ secrets.CXCO_DASHBOARD_RECIPIENTS }}
+          ASCENDERS_DASHBOARD_RECIPIENTS: ${{ secrets.ASCENDERS_DASHBOARD_RECIPIENTS }}
           PMN_DASHBOARD_TEST_RECIPIENT: ${{ secrets.PMN_DASHBOARD_TEST_RECIPIENT }}
           INPUT_AUDIENCE: ${{ github.event.inputs.audience }}
         run: |
