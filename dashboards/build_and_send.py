@@ -328,6 +328,33 @@ def build_meta(data: dict, cfg: dict, snapshot: dict, today: dt.date) -> dict:
 
 # ---------------------------------------------------------------------------- main
 
+def mask(addr):
+    """first.last@nice.com -> f****.l****@nice.com. Enough to eyeball a distribution
+    list in a public CI log without publishing everyone's address."""
+    try:
+        local, domain = addr.split("@", 1)
+    except ValueError:
+        return "***"
+    parts = [(p[0] + "*" * max(1, len(p) - 1)) if p else "" for p in local.split(".")]
+    return ".".join(parts) + "@" + domain
+
+
+def resolve_recipients(cfg, audience):
+    """Addresses come from secrets, never from the (public) repo. None for 'none'."""
+    if audience == "none":
+        return None
+    if audience == "managers":
+        var = cfg.get("recipients_env", f"{cfg['project']}_DASHBOARD_RECIPIENTS")
+        raw = os.environ.get(var, "")
+        if not raw.strip():
+            sys.exit(f"FATAL: {var} is not set — refusing to guess the distribution list. "
+                     f"Nothing was sent.")
+    else:
+        raw = os.environ.get("PMN_DASHBOARD_TEST_RECIPIENT", "kobi.cohen@nice.com")
+    return [a.strip() for a in raw.replace(",", ";").split(";") if a.strip()]
+
+
+
 def run(cmd: list[str], label: str) -> None:
     print(f"\n$ {' '.join(str(c) for c in cmd)}", flush=True)
     r = subprocess.run([str(c) for c in cmd])
@@ -352,6 +379,11 @@ def main() -> int:
     today = d(args.today) if args.today else dt.date.today()
     out = Path(args.outdir or (HERE / "build"))
     (out / "charts").mkdir(parents=True, exist_ok=True)
+
+    recipients = resolve_recipients(cfg, args.audience)
+    if recipients is not None:
+        shown = ", ".join(mask(a) for a in recipients)
+        print(f"Recipients ({args.audience}): {len(recipients)} — {shown}")
 
     start = cfg.get("first_send_date")
     if start and today < d(start) and args.audience == "managers":
@@ -410,16 +442,6 @@ def main() -> int:
         print(f"\nBuilt {html} — no send requested.")
         return 0
 
-    # Addresses come from secrets, never from the (public) repo.
-    if args.audience == "managers":
-        var = cfg.get("recipients_env", f"{cfg['project']}_DASHBOARD_RECIPIENTS")
-        raw = os.environ.get(var, "")
-        if not raw.strip():
-            sys.exit(f"FATAL: {var} is not set — refusing to guess the distribution list. "
-                     f"Nothing was sent.")
-    else:
-        raw = os.environ.get("PMN_DASHBOARD_TEST_RECIPIENT", "kobi.cohen@nice.com")
-    recipients = [a.strip() for a in raw.replace(",", ";").split(";") if a.strip()]
     subject = f"{cfg['subject_prefix']} — {today.strftime('%B %-d, %Y')}"
     if args.audience == "test":
         subject = f"[test] {subject}"
