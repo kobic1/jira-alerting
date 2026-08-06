@@ -175,11 +175,23 @@ def check_ai_epics(data, report, today):
         tot, ai = ours[k]
         if (tot, ai) == (want["total"], want["ai"]):
             record("PASS", f"reconcile:ai_epics {k}", f"{ai}/{tot} == report")
+        elif tot == want["total"] and 0 < ai - want["ai"] <= max(2, round(0.1 * want["total"])):
+            # Direction matters. The snapshot is a point-in-time copy of Power BI, and the
+            # AI flag keeps getting set on already-resolved epics, so Jira drifting UPWARD
+            # by a little -- same denominator, a few more flagged -- is people tagging work,
+            # not a broken query. Drifting DOWNWARD is the undercount signature (the label
+            # bug always read low), so that stays a hard failure below, closed month or not.
+            record("WARN", f"reconcile:ai_epics {k}",
+                   f"dashboard {ai}/{tot} vs report {want['ai']}/{want['total']} "
+                   f"(+{ai - want['ai']}) -- Jira ahead of the snapshot; an epic was flagged "
+                   f"AI after the pull. Re-sync the Power BI snapshot when convenient.")
         else:
-            record(drift_status(y, m), f"reconcile:ai_epics {k}",
-                   f"dashboard {ai}/{tot} != report {want['ai']}/{want['total']} "
-                   f"(is the AI series using the AGENTIC_AI_CODE label instead of "
-                   f"cf[15229] 'Implemented by AI Agent'? that was the 2026-08-05 bug)")
+            record("FAIL" if ai < want["ai"] else drift_status(y, m), f"reconcile:ai_epics {k}",
+                   f"dashboard {ai}/{tot} != report {want['ai']}/{want['total']}"
+                   + (f" -- dashboard reads LOW, which is the AGENTIC_AI_CODE-label "
+                      f"undercount signature; the series must use cf[15229] "
+                      f"'Implemented by AI Agent' (the 2026-08-05 bug)"
+                      if ai < want["ai"] else " -- unexpected divergence, check both sources"))
 
 
 def check_ai_fields(data, report, today, tolerance=3):
