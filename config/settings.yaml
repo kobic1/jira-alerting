@@ -100,8 +100,11 @@ managerial_summary:
       - pradeep.sant@nice.com
     CXSUP:
       - prashant.deshpande@nice.com
+      - sampada.bhonsale@nice.com
     CXCO:
       - prashant.deshpande@nice.com
+    CXWFM:
+      - sampada.bhonsale@nice.com
 
 logging:
   level: "INFO"
