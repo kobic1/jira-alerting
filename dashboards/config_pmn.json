@@ -42,5 +42,11 @@
   "edct_source": "jira",
   "edct_ai_only": true,
   "edct_first_month": 4,
-  "_edct_note": "EDCT is computed from Jira changelogs by edct_from_jira.py, not copied from Power BI: average calendar days in In Progress/Validation, excluding flagged days and Maintenance-category epics. Validated against the R&D Efficiency KPI-TREND row for PMN Apr-Aug 2026 (7/24/26/23/7) - exact match on all five months. Set edct_count_done_day true to follow the written definition instead, which reads ~1 day higher."
+  "_edct_note": "EDCT is computed from Jira changelogs by edct_from_jira.py, not copied from Power BI: average calendar days in In Progress/Validation, excluding flagged days and Maintenance-category epics. Validated against the R&D Efficiency KPI-TREND row for PMN Apr-Aug 2026 (7/24/26/23/7) - exact match on all five months. Set edct_count_done_day true to follow the written definition instead, which reads ~1 day higher.",
+  "daily_personal_copy": true,
+  "manager_send_days": [
+    0,
+    3
+  ],
+  "_cadence_note": "One daily cron drives every dashboard. manager_send_days (Mon, Thu) is when the distribution list gets it; daily_personal_copy sends Kobi his own copy on the other five days. This replaced the local daily scheduled task, which needed Kobi's PC on and double-sent the PMN dashboard on Mondays and Thursdays."
 }

@@ -1,34 +1,34 @@
 name: Release Status Emails
 
-# Emails the release-status KPI dashboards to their management distribution lists
-# every Monday and Thursday. Runs on GitHub's cloud — independent of anyone's computer.
+# Emails the release-status KPI dashboards. Runs on GitHub's cloud — independent of
+# anyone's computer being switched on, and with no browser or interactive sign-in
+# anywhere in the pipeline: every figure, EDCT included, comes from the Jira REST API.
+#
+# One daily cron drives all three. Each config declares its own cadence:
+# manager_send_days (Mon & Thu) is when the distribution list gets it, and
+# daily_personal_copy sends Kobi his own copy on the other five days (PMN only).
+# On a day a dashboard is not due, its job exits cleanly having sent nothing.
 #
 #   PMN       (Performance Management Native) -> PMN_DASHBOARD_RECIPIENTS
 #   CXCO      (CXone Coaching)                -> CXCO_DASHBOARD_RECIPIENTS
 #   ASCENDERS (PMN, Ascenders/Wallboards team) -> ASCENDERS_DASHBOARD_RECIPIENTS
 #
-# The Ascenders job is a team-scoped cut of PMN. It has no EDCT section: that figure
-# only exists behind the Power BI TEAM filter, and the committed snapshot is
-# whole-project, so config_ascenders.json omits the section by decision rather than
-# showing a number that describes a different population.
+# The Ascenders job is a team-scoped cut of PMN, including its own EDCT — team-scoped
+# cycle time is not available from the Power BI page at all, only from the changelog.
 #
 # The three dashboards run as independent matrix jobs: if one fails, the others still
-# send. Each is built live from the Jira REST API. EDCT is the one figure that
-# cannot be refreshed here — it lives in the R&D Efficiency Power BI report behind
-# interactive Microsoft SSO — so it comes from a committed snapshot whose as-of date
-# is always stated in the chart caption. Refresh those snapshots from an interactive
-# Claude session (the pmn-kpi-dashboard skill) at least monthly.
-#
-# Nothing is emailed unless dashboards/verify_data.py passes: per-section freshness,
-# the current month present in every monthly series, and every AI/EDCT figure
-# reconciled against the Power BI snapshot. A failure fails the job rather than
-# sending a wrong dashboard.
+# send. Nothing is emailed unless dashboards/verify_data.py passes: per-section
+# freshness, the current month present in every monthly series, and every AI/EDCT
+# figure reconciled against the committed Power BI snapshot. A failure fails the job
+# rather than sending a wrong dashboard. The snapshot is now only a reconciliation
+# baseline — no chart reads its numbers.
 
 on:
   schedule:
-    # Mon & Thu 05:00 UTC = 08:00 Israel. GitHub can delay scheduled runs by a few
-    # hours under load — this is a digest, so that is acceptable.
-    - cron: '0 5 * * 1,4'
+    # Daily 05:00 UTC = 08:00 Israel. GitHub can delay scheduled runs by a few hours
+    # under load — this is a digest, so that is acceptable. Which audience actually
+    # receives it on a given day is decided per-config by --audience auto.
+    - cron: '0 5 * * *'
   workflow_dispatch:
     inputs:
       audience:
@@ -39,6 +39,7 @@ on:
           - test-kobi-only
           - send-to-managers
           - build-only
+          - auto-as-scheduled
       project:
         description: 'Which dashboard(s)'
         type: choice
@@ -90,6 +91,7 @@ jobs:
         # Fail loudly and early rather than after a full build. A missing flow URL is
         # the one thing that silently turns a scheduled send into a no-op.
         if: steps.gate.outputs.run == 'true' && github.event.inputs.audience != 'build-only'
+        continue-on-error: false
         env:
           FLOW_URL: ${{ secrets.POWER_AUTOMATE_EMAIL_URL }}
           PMN_RCPT: ${{ secrets.PMN_DASHBOARD_RECIPIENTS }}
@@ -122,13 +124,14 @@ jobs:
           PMN_DASHBOARD_TEST_RECIPIENT: ${{ secrets.PMN_DASHBOARD_TEST_RECIPIENT }}
           INPUT_AUDIENCE: ${{ github.event.inputs.audience }}
         run: |
-          # Scheduled (cron) runs carry no input and go to the managers — that is the
-          # point of the schedule. Manual runs default to the Kobi-only test copy.
+          # Scheduled (cron) runs carry no input and use 'auto', which lets each config
+          # decide today's audience. Manual runs default to the Kobi-only test copy.
           case "${INPUT_AUDIENCE:-}" in
-            send-to-managers) AUDIENCE=managers ;;
-            build-only)       AUDIENCE=none ;;
-            test-kobi-only)   AUDIENCE=test ;;
-            "")               AUDIENCE=managers ;;
+            send-to-managers)   AUDIENCE=managers ;;
+            build-only)         AUDIENCE=none ;;
+            test-kobi-only)     AUDIENCE=test ;;
+            auto-as-scheduled)  AUDIENCE=auto ;;
+            "")                 AUDIENCE=auto ;;
             *)                echo "Unknown audience '$INPUT_AUDIENCE'" >&2; exit 1 ;;
           esac
           echo "Project: ${{ matrix.project }} · Audience: $AUDIENCE"

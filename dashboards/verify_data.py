@@ -135,6 +135,16 @@ def check_edct(data, report, today):
     if not d:
         record("FAIL", "reconcile:edct", "no edct section in data.json")
         return
+    # Until EDCT was computed here, data["edct"] WAS the snapshot, so this check
+    # compared the snapshot against itself and could never fail. Now that it is
+    # derived from changelogs the comparison is real -- and so is a source of
+    # legitimate divergence that is not definition drift: the population is
+    # "Implemented by AI Agent = Yes", and an epic can be given that flag long after
+    # the month closed. One such epic joining with 0 counted days moves a monthly
+    # mean by a day. So a small gap is a WARN even on a closed month; a large one
+    # still fails, because that is what a real definition change looks like.
+    computed = d.get("source") == "jira"
+    tolerance = 2
     ours = {}
     for label, val in zip(d["months"], d["values"]):
         y, m = norm_month(label, today.year)
@@ -148,8 +158,16 @@ def check_edct(data, report, today):
                    f"report has {want}, dashboard has no such month")
         elif got == want:
             record("PASS", f"reconcile:edct {k}", f"{got} == report {want}")
+        elif computed and abs(got - want) <= tolerance:
+            record("WARN", f"reconcile:edct {k}",
+                   f"computed {got} vs snapshot {want} (diff {got - want:+d}) — within tolerance; "
+                   f"the AI-Agent population can change after a month closes. "
+                   f"Re-read the Power BI page if this grows.")
         else:
-            record(drift_status(y, m), f"reconcile:edct {k}", f"dashboard {got} != report {want}")
+            record(drift_status(y, m), f"reconcile:edct {k}",
+                   f"dashboard {got} != report {want}"
+                   + (f" (diff {got - want:+d}, beyond the ±{tolerance} tolerance — this is "
+                      f"definition drift, not a population change)" if computed else ""))
 
 
 def check_ai_epics(data, report, today):

@@ -13,21 +13,17 @@ Environment (GitHub Actions secrets):
     JIRA_BASE_URL, JIRA_EMAIL, JIRA_API_TOKEN   — Jira Cloud basic auth
     POWER_AUTOMATE_EMAIL_URL                    — the "Send an email V2" flow trigger
 
-WHAT THIS CAN AND CANNOT REFRESH
-    Live from Jira every run : Delivery, Quality, % Epics by AI, AI Fields Adoption
-    NOT refreshable here     : Epic Dev Cycle Time (EDCT)
+EVERY SECTION IS LIVE FROM JIRA. Nothing here needs a browser or an interactive
+sign-in, so the whole thing runs on GitHub's cloud with no machine of Kobi's
+switched on.
 
-EDCT lives in the "R&D Efficiency" Power BI app, behind interactive Microsoft
-SSO. There is no headless route -- the Power BI MCP connector does not expose
-that dataset (checked 2026-08-05: only 11 certified finance/HR datasets), and
-the report is client-side rendered, so nothing can scrape it from CI. So EDCT
-is read from `powerbi_snapshot.json`, a committed snapshot refreshed by an
-interactive session, and the chart caption always states its as-of date. EDCT
-is a monthly average, so a snapshot that is a week or two old is still a fair
-number -- it just must never be presented as today's.
-
-That same snapshot is what the verification gate reconciles the Jira-derived AI
-numbers against, so a definition drift in a CLOSED month fails the build.
+EDCT used to be the exception -- it was hand-copied from the "R&D Efficiency"
+Power BI app, which sits behind interactive Microsoft SSO. It is now computed
+from Jira changelogs by edct_from_jira.py (average calendar days in In Progress
+or Validation, excluding flagged days and Maintenance epics), validated to
+reproduce that report exactly. `powerbi_snapshot*.json` is kept only as the
+reconciliation baseline the verification gate checks the live numbers against,
+so a definition drift in a CLOSED month fails the build rather than shipping.
 """
 from __future__ import annotations
 
@@ -263,6 +259,7 @@ def build_edct(cfg: dict, today: dt.date) -> dict:
         months.append(f"{today.year}/{m:02d}" + ("*" if m == today.month else ""))
         values.append(round(sum(vals) / len(vals)))
     out = {"months": months, "values": values,
+           "source": "jira",
            "target_all": cfg.get("edct_target", 10), "target_ai": None,
            "_definition": "Average calendar days in In Progress or Validation, excluding "
                           "flagged days and Maintenance-category epics, computed from Jira "
@@ -483,9 +480,26 @@ def mask(addr):
     return ".".join(parts) + "@" + domain
 
 
+def resolve_audience(cfg, audience, today):
+    """Turn --audience auto into a concrete audience for today.
+
+    One daily cron drives every dashboard, and each config says which weekdays are
+    its manager-send days. On any other day a config may still want a personal copy
+    (Kobi's daily PMN dashboard); the rest simply do not run. This is what removes
+    the old double-send, where a daily local task and a Mon/Thu CI job both mailed
+    the PMN dashboard on Mondays and Thursdays.
+    """
+    if audience != "auto":
+        return audience
+    manager_days = cfg.get("manager_send_days", [0, 3])       # Mon, Thu
+    if today.weekday() in manager_days:
+        return "managers"
+    return "personal" if cfg.get("daily_personal_copy") else "skip"
+
+
 def resolve_recipients(cfg, audience):
     """Addresses come from secrets, never from the (public) repo. None for 'none'."""
-    if audience == "none":
+    if audience in ("none", "skip"):
         return None
     if audience == "managers":
         var = cfg.get("recipients_env", f"{cfg['project']}_DASHBOARD_RECIPIENTS")
@@ -494,6 +508,7 @@ def resolve_recipients(cfg, audience):
             sys.exit(f"FATAL: {var} is not set — refusing to guess the distribution list. "
                      f"Nothing was sent.")
     else:
+        # 'test' and 'personal' both go to Kobi; only 'test' brands the subject.
         raw = os.environ.get("PMN_DASHBOARD_TEST_RECIPIENT", "kobi.cohen@nice.com")
     return [a.strip() for a in raw.replace(",", ";").split(";") if a.strip()]
 
@@ -508,9 +523,12 @@ def run(cmd: list[str], label: str) -> None:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--audience", choices=["managers", "test", "none"], default="test",
-                    help="'managers' = the full PMN distribution list from config.json; "
-                         "'test' = Kobi only; 'none' = build and verify, send nothing.")
+    ap.add_argument("--audience",
+                    choices=["managers", "personal", "test", "none", "auto"], default="test",
+                    help="'managers' = the distribution list named by the config's "
+                         "recipients_env secret; 'personal' = Kobi's own copy; 'test' = Kobi "
+                         "with a [test] subject; 'none' = build and verify, send nothing; "
+                         "'auto' = decide from the weekday and the config (what cron uses).")
     ap.add_argument("--outdir", default=None)
     ap.add_argument("--today", default=None, help="override today's date (YYYY-MM-DD)")
     ap.add_argument("--config", default="config_pmn.json",
@@ -524,18 +542,23 @@ def main() -> int:
     out = Path(args.outdir or (HERE / "build"))
     (out / "charts").mkdir(parents=True, exist_ok=True)
 
-    recipients = resolve_recipients(cfg, args.audience)
+    audience = resolve_audience(cfg, args.audience, today)
+    if audience == "skip":
+        print(f"{cfg['project']}: not a send day for this dashboard "
+              f"({today:%A}) and no daily personal copy configured — nothing to do.")
+        return 0
+    recipients = resolve_recipients(cfg, audience)
     if recipients is not None:
         shown = ", ".join(mask(a) for a in recipients)
-        print(f"Recipients ({args.audience}): {len(recipients)} — {shown}")
+        print(f"Recipients ({audience}): {len(recipients)} — {shown}")
 
     start = cfg.get("first_send_date")
-    if start and today < d(start) and args.audience == "managers":
+    if start and today < d(start) and audience == "managers":
         print(f"Not sending to managers before {start} (today is {today}). "
               f"Scheduled start date not reached -- exiting cleanly.")
         return 0
 
-    print(f"{cfg['project']} dashboard build — {today}  (audience: {args.audience})")
+    print(f"{cfg['project']} dashboard build — {today}  (audience: {audience})")
     j = Jira()
 
     data = {
@@ -598,12 +621,12 @@ def main() -> int:
     run([sys.executable, HERE / "assemble_dashboard_html.py", "--charts-dir", out / "charts",
          "--meta", meta_path, "--out", html], "HTML assembly")
 
-    if args.audience == "none":
+    if audience == "none":
         print(f"\nBuilt {html} — no send requested.")
         return 0
 
     subject = f"{cfg['subject_prefix']} — {today.strftime('%B %-d, %Y')}"
-    if args.audience == "test":
+    if audience == "test":
         subject = f"[test] {subject}"
     print(f"\nSending to {len(recipients)} recipient(s): {', '.join(recipients)}")
     run([sys.executable, HERE / "send_email.py", "--to", ";".join(recipients),

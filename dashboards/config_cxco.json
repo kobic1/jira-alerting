@@ -43,5 +43,14 @@
   "recipients_env": "CXCO_DASHBOARD_RECIPIENTS",
   "_recipients_note": "Recipient addresses are NOT in this file -- the repo is public. Managers come from the CXCO_DASHBOARD_RECIPIENTS secret (semicolon-separated); the test audience comes from PMN_DASHBOARD_TEST_RECIPIENT (shared -- it is just Kobi's review copy).",
   "_first_send_date_note": "Same cadence and start as PMN: Mon & Thu, first manager send Mon Aug 10 2026. Without this the cron would have fired Thu Aug 6.",
-  "first_send_date": "2026-08-10"
+  "first_send_date": "2026-08-10",
+  "edct_source": "jira",
+  "edct_ai_only": true,
+  "edct_first_month": 4,
+  "_edct_note": "EDCT computed from Jira changelogs (edct_from_jira.py), not the Power BI snapshot. Validated 2026-08-06 against powerbi_snapshot_cxco.json: Apr/May/Jun/Aug match exactly (22/18/13/13); July reads 17 vs the snapshot's 18 because a 19th epic was flagged Implemented-by-AI after the snapshot was taken and it has 0 counted days, moving the mean from 18.1 to 17.2. The live figure is the correct one.",
+  "manager_send_days": [
+    0,
+    3
+  ],
+  "daily_personal_copy": false
 }
