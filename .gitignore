@@ -6,4 +6,4 @@ __pycache__/
 .alert_cache.json.bak.*
 
 # PMN dashboard build output (contains internal figures — never commit)
-pmn_dashboard/build/
+dashboards/build/

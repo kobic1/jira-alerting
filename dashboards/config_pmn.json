@@ -37,5 +37,6 @@
   "ai_epics_month_style": "short",
   "sections": {
     "ai_fields_adoption": true
-  }
+  },
+  "recipients_env": "PMN_DASHBOARD_RECIPIENTS"
 }

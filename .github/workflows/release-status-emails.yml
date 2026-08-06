@@ -1,0 +1,138 @@
+name: Release Status Emails
+
+# Emails the release-status KPI dashboards to their management distribution lists
+# every Monday and Thursday. Runs on GitHub's cloud — independent of anyone's computer.
+#
+#   PMN  (Performance Management Native) -> PMN_DASHBOARD_RECIPIENTS
+#   CXCO (CXone Coaching)                -> CXCO_DASHBOARD_RECIPIENTS
+#
+# The two projects run as independent matrix jobs: if one fails, the other still
+# sends. Each is built live from the Jira REST API. EDCT is the one figure that
+# cannot be refreshed here — it lives in the R&D Efficiency Power BI report behind
+# interactive Microsoft SSO — so it comes from a committed snapshot whose as-of date
+# is always stated in the chart caption. Refresh those snapshots from an interactive
+# Claude session (the pmn-kpi-dashboard skill) at least monthly.
+#
+# Nothing is emailed unless dashboards/verify_data.py passes: per-section freshness,
+# the current month present in every monthly series, and every AI/EDCT figure
+# reconciled against the Power BI snapshot. A failure fails the job rather than
+# sending a wrong dashboard.
+
+on:
+  schedule:
+    # Mon & Thu 05:00 UTC = 08:00 Israel. GitHub can delay scheduled runs by a few
+    # hours under load — this is a digest, so that is acceptable.
+    - cron: '0 5 * * 1,4'
+  workflow_dispatch:
+    inputs:
+      audience:
+        description: 'Who receives it'
+        type: choice
+        default: test-kobi-only
+        options:
+          - test-kobi-only
+          - send-to-managers
+          - build-only
+      project:
+        description: 'Which dashboard(s)'
+        type: choice
+        default: both
+        options:
+          - both
+          - pmn
+          - cxco
+
+jobs:
+  dashboard:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false        # one project failing must not cancel the other
+      matrix:
+        project: [pmn, cxco]
+    name: ${{ matrix.project }}
+    steps:
+      - name: Skip project not selected for this manual run
+        id: gate
+        env:
+          WANTED: ${{ github.event.inputs.project }}
+        run: |
+          WANTED="${WANTED:-both}"
+          if [ "$WANTED" != "both" ] && [ "$WANTED" != "${{ matrix.project }}" ]; then
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "Manual run selected '$WANTED' — skipping ${{ matrix.project }}."
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout code
+        if: steps.gate.outputs.run == 'true'
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        if: steps.gate.outputs.run == 'true'
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        if: steps.gate.outputs.run == 'true'
+        run: pip install -r dashboards/requirements.txt
+
+      - name: Check the send secrets exist
+        # Fail loudly and early rather than after a full build. A missing flow URL is
+        # the one thing that silently turns a scheduled send into a no-op.
+        if: steps.gate.outputs.run == 'true' && github.event.inputs.audience != 'build-only'
+        env:
+          FLOW_URL: ${{ secrets.POWER_AUTOMATE_EMAIL_URL }}
+          PMN_RCPT: ${{ secrets.PMN_DASHBOARD_RECIPIENTS }}
+          CXCO_RCPT: ${{ secrets.CXCO_DASHBOARD_RECIPIENTS }}
+        run: |
+          MISSING=""
+          [ -n "$FLOW_URL" ] || MISSING="$MISSING POWER_AUTOMATE_EMAIL_URL"
+          case "${{ matrix.project }}" in
+            pmn)  [ -n "$PMN_RCPT" ]  || MISSING="$MISSING PMN_DASHBOARD_RECIPIENTS" ;;
+            cxco) [ -n "$CXCO_RCPT" ] || MISSING="$MISSING CXCO_DASHBOARD_RECIPIENTS" ;;
+          esac
+          if [ -n "$MISSING" ]; then
+            echo "::error::Missing repo secret(s):$MISSING — set them in Settings → Secrets and variables → Actions. Nothing was sent."
+            exit 1
+          fi
+          echo "Send secrets present."
+
+      - name: Build, verify and send the ${{ matrix.project }} dashboard
+        if: steps.gate.outputs.run == 'true'
+        env:
+          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+          JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+          POWER_AUTOMATE_EMAIL_URL: ${{ secrets.POWER_AUTOMATE_EMAIL_URL }}
+          PMN_DASHBOARD_RECIPIENTS: ${{ secrets.PMN_DASHBOARD_RECIPIENTS }}
+          CXCO_DASHBOARD_RECIPIENTS: ${{ secrets.CXCO_DASHBOARD_RECIPIENTS }}
+          PMN_DASHBOARD_TEST_RECIPIENT: ${{ secrets.PMN_DASHBOARD_TEST_RECIPIENT }}
+          INPUT_AUDIENCE: ${{ github.event.inputs.audience }}
+        run: |
+          # Scheduled (cron) runs carry no input and go to the managers — that is the
+          # point of the schedule. Manual runs default to the Kobi-only test copy.
+          case "${INPUT_AUDIENCE:-}" in
+            send-to-managers) AUDIENCE=managers ;;
+            build-only)       AUDIENCE=none ;;
+            test-kobi-only)   AUDIENCE=test ;;
+            "")               AUDIENCE=managers ;;
+            *)                echo "Unknown audience '$INPUT_AUDIENCE'" >&2; exit 1 ;;
+          esac
+          echo "Project: ${{ matrix.project }} · Audience: $AUDIENCE"
+          python dashboards/build_and_send.py \
+            --config "config_${{ matrix.project }}.json" \
+            --audience "$AUDIENCE"
+
+      - name: Upload the built dashboard
+        if: always() && steps.gate.outputs.run == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.project }}-dashboard-${{ github.run_id }}
+          path: |
+            dashboards/build/*.html
+            dashboards/build/data.json
+          if-no-files-found: warn
+          retention-days: 30

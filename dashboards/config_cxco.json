@@ -39,5 +39,9 @@
   "sections": {
     "ai_fields_adoption": false
   },
-  "footer_note": "AI Fields Adoption is omitted &mdash; CXCO hasn't instrumented those code-metric fields yet."
+  "footer_note": "AI Fields Adoption is omitted &mdash; CXCO hasn't instrumented those code-metric fields yet.",
+  "recipients_env": "CXCO_DASHBOARD_RECIPIENTS",
+  "_recipients_note": "Recipient addresses are NOT in this file -- the repo is public. Managers come from the CXCO_DASHBOARD_RECIPIENTS secret (semicolon-separated); the test audience comes from PMN_DASHBOARD_TEST_RECIPIENT (shared -- it is just Kobi's review copy).",
+  "_first_send_date_note": "Same cadence and start as PMN: Mon & Thu, first manager send Mon Aug 10 2026. Without this the cron would have fired Thu Aug 6.",
+  "first_send_date": "2026-08-10"
 }

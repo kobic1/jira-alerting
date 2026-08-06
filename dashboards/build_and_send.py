@@ -342,9 +342,9 @@ def main() -> int:
                          "'test' = Kobi only; 'none' = build and verify, send nothing.")
     ap.add_argument("--outdir", default=None)
     ap.add_argument("--today", default=None, help="override today's date (YYYY-MM-DD)")
-    ap.add_argument("--config", default="config.json",
-                    help="project config in this directory (config.json = PMN, "
-                         "config_cxco.json = CXCO)")
+    ap.add_argument("--config", default="config_pmn.json",
+                    help="project config in this directory: config_pmn.json, "
+                         "config_cxco.json")
     args = ap.parse_args()
 
     cfg = json.load(open(HERE / args.config))
@@ -412,10 +412,11 @@ def main() -> int:
 
     # Addresses come from secrets, never from the (public) repo.
     if args.audience == "managers":
-        raw = os.environ.get("PMN_DASHBOARD_RECIPIENTS", "")
+        var = cfg.get("recipients_env", f"{cfg['project']}_DASHBOARD_RECIPIENTS")
+        raw = os.environ.get(var, "")
         if not raw.strip():
-            sys.exit("FATAL: PMN_DASHBOARD_RECIPIENTS is not set — refusing to guess the "
-                     "distribution list. Nothing was sent.")
+            sys.exit(f"FATAL: {var} is not set — refusing to guess the distribution list. "
+                     f"Nothing was sent.")
     else:
         raw = os.environ.get("PMN_DASHBOARD_TEST_RECIPIENT", "kobi.cohen@nice.com")
     recipients = [a.strip() for a in raw.replace(",", ";").split(";") if a.strip()]
