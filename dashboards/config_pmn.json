@@ -38,5 +38,9 @@
   "sections": {
     "ai_fields_adoption": true
   },
-  "recipients_env": "PMN_DASHBOARD_RECIPIENTS"
+  "recipients_env": "PMN_DASHBOARD_RECIPIENTS",
+  "edct_source": "jira",
+  "edct_ai_only": true,
+  "edct_first_month": 4,
+  "_edct_note": "EDCT is computed from Jira changelogs by edct_from_jira.py, not copied from Power BI: average calendar days in In Progress/Validation, excluding flagged days and Maintenance-category epics. Validated against the R&D Efficiency KPI-TREND row for PMN Apr-Aug 2026 (7/24/26/23/7) - exact match on all five months. Set edct_count_done_day true to follow the written definition instead, which reads ~1 day higher."
 }

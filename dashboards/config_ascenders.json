@@ -3,7 +3,7 @@
   "project_label": "PMN (Performance Management Native)",
   "powerbi_snapshot": "powerbi_snapshot.json",
   "release": "26.4",
-  "subject_prefix": "PMN Release Status — Ascenders Team",
+  "subject_prefix": "PMN Release Status \u2014 Ascenders Team",
   "_team_scope_note": "PMN records the team in two different fields depending on issue type: cf[10040] 'Epic Team\\s' is set on epics, cf[10098] 'Team Name' on stories/bugs/tasks (and some epics). Filtering on either one alone silently drops most of the data -- as of Aug 2026, cf[10040] matched 41 Ascenders issues and cf[10098] matched 680. any_clause is the union, used for epics and the all-issue-type AI series; bug_clause is what bugs actually carry.",
   "team_scope": {
     "name": "Ascenders",
@@ -42,7 +42,11 @@
   "ai_epics_month_style": "short",
   "sections": {
     "ai_fields_adoption": true,
-    "edct": false
+    "edct": true
   },
-  "footer_note": "Ascenders is the Wallboards team."
+  "footer_note": "Ascenders is the Wallboards team.",
+  "edct_source": "jira",
+  "edct_ai_only": true,
+  "edct_first_month": 4,
+  "_edct_note": "EDCT is computed from Jira changelogs by edct_from_jira.py, not copied from Power BI: average calendar days in In Progress/Validation, excluding flagged days and Maintenance-category epics. Validated against the R&D Efficiency KPI-TREND row for PMN Apr-Aug 2026 (7/24/26/23/7) - exact match on all five months. Set edct_count_done_day true to follow the written definition instead, which reads ~1 day higher."
 }

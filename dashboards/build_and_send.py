@@ -223,6 +223,56 @@ def build_ai_epics(j: Jira, cfg: dict, today: dt.date) -> dict:
             "as_of": today.isoformat()}
 
 
+def build_edct(cfg: dict, today: dt.date) -> dict:
+    """EDCT straight from Jira changelogs -- see edct_from_jira.py for the metric.
+
+    This is what lets EDCT refresh headlessly (and lets a team-scoped dashboard have
+    an EDCT section at all): the Power BI page needs an interactive sign-in, the
+    changelog does not. Months where the population is empty are dropped rather than
+    plotted as zero -- no epics resolved is not a cycle time of nothing.
+    """
+    import edct_from_jira as E
+
+    j = E.Jira()
+    ai_only = cfg.get("edct_ai_only", True)
+    team = (cfg.get("team_scope") or {}).get("any_clause")
+    months, values = [], []
+    empty_current = None
+    for m in range(cfg.get("edct_first_month", 4), today.month + 1):
+        lo, hi = month_bounds(today.year, m)
+        jql = (f'project = {cfg["project"]} AND issuetype = Epic AND status = Done '
+               f'AND resolutiondate >= "{lo}" AND resolutiondate < "{hi}"')
+        if ai_only:
+            jql += f' AND {CF_IMPLEMENTED_BY_AI} = "Yes"'
+        if team:
+            jql += f' AND {team}'
+        vals = []
+        for i in j.search(jql, ["resolutiondate", E.CF_ISSUE_CATEGORY]):
+            f = i["fields"]
+            cat = f.get(E.CF_ISSUE_CATEGORY)
+            cat = cat.get("value") if isinstance(cat, dict) else cat
+            if cat == E.EXCLUDED_CATEGORY:
+                continue
+            vals.append(E.edct_days(E.epic_events(j.changelog(i["key"])),
+                                    end=E.ts(f["resolutiondate"]).date(),
+                                    count_done_day=cfg.get("edct_count_done_day", False)))
+        if not vals:
+            if m == today.month:
+                empty_current = "no epics resolved yet this month, so there is no average to plot"
+            continue
+        months.append(f"{today.year}/{m:02d}" + ("*" if m == today.month else ""))
+        values.append(round(sum(vals) / len(vals)))
+    out = {"months": months, "values": values,
+           "target_all": cfg.get("edct_target", 10), "target_ai": None,
+           "_definition": "Average calendar days in In Progress or Validation, excluding "
+                          "flagged days and Maintenance-category epics, computed from Jira "
+                          "changelogs. Matches the R&D Efficiency report's KPI-TREND row.",
+           "as_of": today.isoformat()}
+    if empty_current:
+        out["omit_current_month"] = empty_current
+    return out
+
+
 def build_ai_fields(j: Jira, cfg: dict, today: dt.date, first_month: int = 4) -> dict:
     """Marked-as-AI vs having-the-PR-URL-metric, monthly. Scope matches the Power BI
     'AI Fields Adaption' page filters: ALL issue types, ALL statuses, by resolved
@@ -260,12 +310,23 @@ def build_meta(data: dict, cfg: dict, snapshot: dict, today: dt.date) -> dict:
     forecast = dl.get("forecast_override") or 0
     last_close = d(cfg["release_start_date"]) + dt.timedelta(days=max(dl["days_into_release_delivered"] or [0]))
 
+    def last_closed(series: dict) -> int:
+        """Index of the newest month that is NOT partial. A partial month is marked
+        with a trailing '*', so trust that rather than assuming it is always the last
+        entry -- a month with an empty population is dropped from the EDCT series, and
+        a blind -2 then reports the month before last as 'closed'."""
+        months = series["months"]
+        for i in range(len(months) - 1, -1, -1):
+            if not str(months[i]).endswith("*"):
+                return i
+        return len(months) - 1
+
     # AI headline figures use the last CLOSED month -- a 3-day-old month is not a rate.
-    closed = -2 if len(ae["months"]) > 1 else -1
+    closed = last_closed(ae)
     ae_pct_closed = pct(ae["ai_epics"][closed], ae["total_epics"][closed])
     ae_cur = pct(ae["ai_epics"][-1], ae["total_epics"][-1])
     if af:
-        af_closed = -2 if len(af["months"]) > 1 else -1
+        af_closed = last_closed(af)
         af_pct_closed = pct(af["new_metrics"][af_closed], af["marked_ai"][af_closed])
         af_cur = pct(af["new_metrics"][-1], af["marked_ai"][-1])
 
@@ -273,7 +334,7 @@ def build_meta(data: dict, cfg: dict, snapshot: dict, today: dt.date) -> dict:
     peak = max(ql["open_trend"])
     peak_week = ql["weeks"][ql["open_trend"].index(peak)]
     edct_stale = ed and ed.get("as_of") != today.isoformat()
-    ed_closed = -2 if ed and len(ed["months"]) > 1 else -1
+    ed_closed = last_closed(ed) if ed else -1
 
     # Without EDCT the third card would be a dead em-dash; for a team cut the count of
     # epics actually moving is the more useful number in that slot.
@@ -327,12 +388,17 @@ def build_meta(data: dict, cfg: dict, snapshot: dict, today: dt.date) -> dict:
                         + (f" (all epics) / &le;{ed['target_ai']} (AI-assisted) targets. "
                            if ed.get("target_ai") is not None else " day target. ")
                         + f"{ed['months'][ed_closed]} closed at {ed['values'][ed_closed]} days. "
-                        + (f"<b>Carried forward &mdash; as of {ed['as_of']}.</b> EDCT comes from the "
-                           f"R&amp;D Efficiency Power BI report, which needs an interactive "
-                           f"sign-in and cannot be refreshed by this automated run; every other "
-                           f"section below is live. "
-                           if edct_stale else "Pulled live from R&amp;D Efficiency Power BI. ")
-                        + "Source: R&amp;D Efficiency Power BI, Epic Dev Cycle Time."),
+                        + (f"Computed live from Jira changelogs &mdash; average calendar days in "
+                           f"In Progress or Validation, excluding flagged days and "
+                           f"Maintenance-category epics. Reconciles with the R&amp;D Efficiency "
+                           f"report's KPI-TREND row."
+                           if cfg.get("edct_source") == "jira" else
+                           (f"<b>Carried forward &mdash; as of {ed['as_of']}.</b> EDCT comes from the "
+                            f"R&amp;D Efficiency Power BI report, which needs an interactive "
+                            f"sign-in and cannot be refreshed by this automated run; every other "
+                            f"section below is live. "
+                            if edct_stale else "Pulled live from R&amp;D Efficiency Power BI. ")
+                           + "Source: R&amp;D Efficiency Power BI, Epic Dev Cycle Time.")),
         })
     sections.append({
         "file": "chart_quality.png", "rail": "#2E9E4F", "tint": "rgba(46,158,79,0.06)",
@@ -492,7 +558,9 @@ def main() -> int:
     # snapshot predates it, so the verifier warns instead of failing the build.
     # The committed snapshot is whole-project, so a team-scoped config cannot use it --
     # those configs set sections.edct false and the section is omitted by decision.
-    if cfg.get("sections", {}).get("edct", True):
+    if cfg.get("edct_source") == "jira":
+        data["edct"] = build_edct(cfg, today)
+    elif cfg.get("sections", {}).get("edct", True):
         edct = dict(snapshot["edct_series"])
         if not any(str(m).rstrip("*").endswith(f"/{today.month:02d}") for m in edct["months"]):
             edct["omit_current_month"] = (f"EDCT is a Power BI figure requiring interactive sign-in; "
