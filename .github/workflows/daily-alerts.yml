@@ -46,6 +46,16 @@ jobs:
         run: |
           python main.py --managerial-summary --project PMN --project PMSTND
 
+      - name: Send managerial summary (CXSUP + CXWFM)
+        env:
+          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+          JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+          TEAMS_FLOW_URL: ${{ secrets.TEAMS_FLOW_URL }}
+          SNOOZE_FLOW_URL: ${{ secrets.SNOOZE_FLOW_URL }}
+        run: |
+          python main.py --managerial-summary --project CXSUP --project CXWFM
+
       - name: Send WFM Org — Completed Epics Awaiting Closure
         env:
           JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
