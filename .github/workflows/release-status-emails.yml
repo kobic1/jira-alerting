@@ -95,15 +95,21 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # Fail OPEN. Every gh call here is `|| true`: if the API hiccups we would
+          # rather send a duplicate than have the gate silently swallow a manager
+          # send. Under `bash -e` an unguarded failing command substitution would
+          # abort the job outright, which is exactly the silent-miss we are fixing.
           TODAY=$(date -u +%F)
           ALREADY=0
-          for RID in $(gh run list --workflow=release-status-emails.yml \
-                          --repo "$GITHUB_REPOSITORY" --event schedule \
-                          --created "$TODAY" --status success \
-                          --limit 20 --json databaseId -q '.[].databaseId'); do
+          RIDS=$(gh run list --workflow=release-status-emails.yml \
+                    --repo "$GITHUB_REPOSITORY" --event schedule \
+                    --created "$TODAY" --status success \
+                    --limit 20 --json databaseId -q '.[].databaseId' 2>/dev/null || true)
+          for RID in $RIDS; do
             if [ "$RID" = "$GITHUB_RUN_ID" ]; then continue; fi
             CONC=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RID/jobs" \
-                     -q '.jobs[] | select(.name=="${{ matrix.project }}") | .conclusion')
+                     -q '.jobs[] | select(.name=="${{ matrix.project }}") | .conclusion' \
+                     2>/dev/null || true)
             if [ "$CONC" = "success" ]; then ALREADY=1; break; fi
           done
           if [ "$ALREADY" = "1" ]; then
