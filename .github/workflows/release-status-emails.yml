@@ -35,6 +35,11 @@ on:
     # missing, so a second pass runs five hours later; the gate below makes it a
     # no-op whenever the morning run already sent.
     - cron: '25 9 * * *'
+    # TEMPORARY -- one-shot proof that the `schedule` TRIGGER fires at all, after the
+    # 2026-08-07 05:00 slot was dropped. Day-of-month + month pin it to Aug 7 only.
+    # Friday resolves to PMN 'personal', so this reaches Kobi and nobody else.
+    # DELETE THIS LINE once it has fired (or once tomorrow's 25 4 run proves the point).
+    - cron: '25 14 7 8 *'
   workflow_dispatch:
     inputs:
       audience:
