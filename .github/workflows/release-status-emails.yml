@@ -26,20 +26,16 @@ name: Release Status Emails
 on:
   schedule:
     # NOT on the hour. GitHub sheds scheduled load hardest at :00, and this workflow's
-    # first-ever slot (2026-08-07 05:00 UTC) was dropped outright. The repo's two
-    # long-running workflows use '20 4' and '30 4' and fire reliably — late, but they
-    # fire — so this sits in the same neighbourhood. Observed delay on this repo is
-    # 1.5-3.5h, i.e. real delivery lands ~06:00-08:00 UTC (09:00-11:00 Israel).
+    # first-ever slot (2026-08-07 05:00 UTC) was dropped outright. Moving off :00 fixed
+    # it: a one-shot '25 14 7 8 *' test that same afternoon fired and delivered, 50 min
+    # past nominal. Keep this in the same neighbourhood as the repo's two other
+    # schedules ('20 4', '30 4'), which have fired every weekday for weeks. Expect
+    # 50min-3.5h of delay, i.e. delivery ~05:15-08:00 UTC (08:15-11:00 Israel).
     - cron: '25 4 * * *'
     # Catch-up. A single dropped slot is exactly how a manager send goes silently
     # missing, so a second pass runs five hours later; the gate below makes it a
     # no-op whenever the morning run already sent.
     - cron: '25 9 * * *'
-    # TEMPORARY -- one-shot proof that the `schedule` TRIGGER fires at all, after the
-    # 2026-08-07 05:00 slot was dropped. Day-of-month + month pin it to Aug 7 only.
-    # Friday resolves to PMN 'personal', so this reaches Kobi and nobody else.
-    # DELETE THIS LINE once it has fired (or once tomorrow's 25 4 run proves the point).
-    - cron: '25 14 7 8 *'
   workflow_dispatch:
     inputs:
       audience:
