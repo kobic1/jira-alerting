@@ -9,6 +9,10 @@ on:
     - cron: '20 4 * * 1-5'  # ~07:20 Israel nominal, weekdays only
   workflow_dispatch:         # Allow manual trigger from GitHub UI
 
+concurrency:
+  group: daily-alerts
+  cancel-in-progress: true   # if a second run starts while first is running, cancel the second
+
 jobs:
   send-alerts:
     runs-on: ubuntu-latest
@@ -56,7 +60,19 @@ jobs:
         run: |
           python main.py --managerial-summary --project CXSUP --project CXWFM
 
+      - name: Get today's date (for WFM dedup key)
+        id: today
+        run: echo "date=$(date -u +%Y-%m-%d)" >> $GITHUB_OUTPUT
+
+      - name: Check if WFM alert already sent today
+        id: wfm-dedup
+        uses: actions/cache@v4
+        with:
+          path: .wfm-sent
+          key: wfm-sent-${{ steps.today.outputs.date }}
+
       - name: Send WFM Org — Completed Epics Awaiting Closure
+        if: steps.wfm-dedup.outputs.cache-hit != 'true'
         env:
           JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
           JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
@@ -69,3 +85,4 @@ jobs:
             idan.kaizerman@nice.com \
             yoav.shulman@nice.com \
             --skip-if-empty
+          date -u +%Y-%m-%d > .wfm-sent
