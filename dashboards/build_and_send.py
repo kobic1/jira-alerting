@@ -34,9 +34,11 @@ import json
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import requests
+import urllib3
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
@@ -73,14 +75,41 @@ class Jira:
     def count(self, jql: str) -> int:
         """Issue count. Uses the approximate-count endpoint (the only cheap count on
         Jira Cloud v3); falls back to paging if it is unavailable."""
-        r = self.s.post(f"{self.base}/rest/api/3/search/approximate-count",
-                        json={"jql": jql}, timeout=60)
-        if r.status_code == 200:
-            return int(r.json()["count"])
-        if r.status_code in (404, 410):
-            return len(self.search(jql, ["key"]))
-        r.raise_for_status()
-        raise RuntimeError("unreachable")
+        try:
+            return int(self._post("/rest/api/3/search/approximate-count",
+                                  {"jql": jql}, timeout=60)["count"])
+        except requests.exceptions.HTTPError as e:
+            if e.response is not None and e.response.status_code in (404, 410):
+                return len(self.search(jql, ["key"]))
+            raise
+
+    def _post(self, path: str, body: dict, timeout: int = 90):
+        """POST with a retry around mid-response connection failures.
+
+        urllib3's Retry covers status codes and connection setup, but not a body that
+        dies while streaming: requests raises ChunkedEncodingError/ProtocolError after
+        the response has already started, which escapes it entirely. That killed the
+        2026-08-07 PMN run outright ("Response ended prematurely") — one flaky read out
+        of several hundred, and the whole dashboard went unsent.
+        """
+        last = None
+        for attempt in range(4):
+            try:
+                r = self.s.post(f"{self.base}{path}", json=body, timeout=timeout)
+                r.raise_for_status()
+                return r.json()
+            except (requests.exceptions.ChunkedEncodingError,
+                    requests.exceptions.ConnectionError,
+                    urllib3.exceptions.ProtocolError,
+                    json.JSONDecodeError) as e:
+                last = e
+                if attempt == 3:
+                    break
+                wait = 2 ** attempt
+                print(f"  transient read error ({type(e).__name__}), retry "
+                      f"{attempt + 1}/3 in {wait}s", flush=True)
+                time.sleep(wait)
+        raise RuntimeError(f"Jira POST {path} failed after 4 attempts: {last}")
 
     def search(self, jql: str, fields: list[str]) -> list[dict]:
         """All issues matching jql, following nextPageToken to the end."""
@@ -90,9 +119,7 @@ class Jira:
             body = {"jql": jql, "fields": fields, "maxResults": 100}
             if token:
                 body["nextPageToken"] = token
-            r = self.s.post(f"{self.base}/rest/api/3/search/jql", json=body, timeout=90)
-            r.raise_for_status()
-            data = r.json()
+            data = self._post("/rest/api/3/search/jql", body)
             out.extend(data.get("issues", []))
             token = data.get("nextPageToken")
             if data.get("isLast", True) or not token:

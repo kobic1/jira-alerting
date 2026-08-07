@@ -48,8 +48,10 @@ import datetime as dt
 import json
 import os
 import sys
+import time
 
 import requests
+import urllib3
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
@@ -162,12 +164,24 @@ class Jira:
                 return out
 
     def changelog(self, key: str) -> list[dict]:
+        """One request per epic makes this the highest-volume caller, so a mid-response
+        connection failure here is the likeliest way a whole run dies. Retry it."""
         out, start = [], 0
         while True:
-            r = self.s.get(f"{self.base}/rest/api/3/issue/{key}/changelog",
-                           params={"startAt": start, "maxResults": 100}, timeout=90)
-            r.raise_for_status()
-            data = r.json()
+            data = None
+            for attempt in range(4):
+                try:
+                    r = self.s.get(f"{self.base}/rest/api/3/issue/{key}/changelog",
+                                   params={"startAt": start, "maxResults": 100}, timeout=90)
+                    r.raise_for_status()
+                    data = r.json()
+                    break
+                except (requests.exceptions.ChunkedEncodingError,
+                        requests.exceptions.ConnectionError,
+                        urllib3.exceptions.ProtocolError) as e:
+                    if attempt == 3:
+                        raise RuntimeError(f"changelog {key} failed after 4 attempts: {e}")
+                    time.sleep(2 ** attempt)
             out.extend(data.get("values", []))
             start += len(data.get("values", []))
             if start >= data.get("total", 0) or not data.get("values"):

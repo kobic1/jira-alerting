@@ -25,10 +25,16 @@ name: Release Status Emails
 
 on:
   schedule:
-    # Daily 05:00 UTC = 08:00 Israel. GitHub can delay scheduled runs by a few hours
-    # under load — this is a digest, so that is acceptable. Which audience actually
-    # receives it on a given day is decided per-config by --audience auto.
-    - cron: '0 5 * * *'
+    # NOT on the hour. GitHub sheds scheduled load hardest at :00, and this workflow's
+    # first-ever slot (2026-08-07 05:00 UTC) was dropped outright. The repo's two
+    # long-running workflows use '20 4' and '30 4' and fire reliably — late, but they
+    # fire — so this sits in the same neighbourhood. Observed delay on this repo is
+    # 1.5-3.5h, i.e. real delivery lands ~06:00-08:00 UTC (09:00-11:00 Israel).
+    - cron: '25 4 * * *'
+    # Catch-up. A single dropped slot is exactly how a manager send goes silently
+    # missing, so a second pass runs five hours later; the gate below makes it a
+    # no-op whenever the morning run already sent.
+    - cron: '25 9 * * *'
   workflow_dispatch:
     inputs:
       audience:
@@ -49,6 +55,10 @@ on:
           - pmn
           - cxco
           - ascenders
+
+permissions:
+  contents: read
+  actions: read          # the dedupe gate reads this workflow's earlier runs
 
 jobs:
   dashboard:
@@ -72,25 +82,51 @@ jobs:
             echo "run=true" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Skip if today's scheduled send already went out
+        # The catch-up cron must not double-send. Only SCHEDULED runs count as "already
+        # sent" -- a manual test run should never suppress the real one.
+        id: dedupe
+        if: steps.gate.outputs.run == 'true' && github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TODAY=$(date -u +%F)
+          ALREADY=0
+          for RID in $(gh run list --workflow=release-status-emails.yml \
+                          --repo "$GITHUB_REPOSITORY" --event schedule \
+                          --created "$TODAY" --status success \
+                          --limit 20 --json databaseId -q '.[].databaseId'); do
+            if [ "$RID" = "$GITHUB_RUN_ID" ]; then continue; fi
+            CONC=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RID/jobs" \
+                     -q '.jobs[] | select(.name=="${{ matrix.project }}") | .conclusion')
+            if [ "$CONC" = "success" ]; then ALREADY=1; break; fi
+          done
+          if [ "$ALREADY" = "1" ]; then
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "${{ matrix.project }} already sent successfully today — catch-up is a no-op."
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Checkout code
-        if: steps.gate.outputs.run == 'true'
+        if: steps.gate.outputs.run == 'true' && steps.dedupe.outputs.run != 'false'
         uses: actions/checkout@v7
 
       - name: Set up Python
-        if: steps.gate.outputs.run == 'true'
+        if: steps.gate.outputs.run == 'true' && steps.dedupe.outputs.run != 'false'
         uses: actions/setup-python@v6
         with:
           python-version: '3.11'
           cache: 'pip'
 
       - name: Install dependencies
-        if: steps.gate.outputs.run == 'true'
+        if: steps.gate.outputs.run == 'true' && steps.dedupe.outputs.run != 'false'
         run: pip install -r dashboards/requirements.txt
 
       - name: Check the send secrets exist
         # Fail loudly and early rather than after a full build. A missing flow URL is
         # the one thing that silently turns a scheduled send into a no-op.
-        if: steps.gate.outputs.run == 'true' && github.event.inputs.audience != 'build-only'
+        if: steps.gate.outputs.run == 'true' && steps.dedupe.outputs.run != 'false' && github.event.inputs.audience != 'build-only'
         continue-on-error: false
         env:
           FLOW_URL: ${{ secrets.POWER_AUTOMATE_EMAIL_URL }}
@@ -112,7 +148,7 @@ jobs:
           echo "Send secrets present."
 
       - name: Build, verify and send the ${{ matrix.project }} dashboard
-        if: steps.gate.outputs.run == 'true'
+        if: steps.gate.outputs.run == 'true' && steps.dedupe.outputs.run != 'false'
         env:
           JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
           JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
@@ -140,7 +176,7 @@ jobs:
             --audience "$AUDIENCE"
 
       - name: Upload the built dashboard
-        if: always() && steps.gate.outputs.run == 'true'
+        if: always() && steps.gate.outputs.run == 'true' && steps.dedupe.outputs.run != 'false'
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.project }}-dashboard-${{ github.run_id }}
