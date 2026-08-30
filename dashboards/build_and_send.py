@@ -472,11 +472,23 @@ def build_meta(data: dict, cfg: dict, snapshot: dict, today: dt.date) -> dict:
     live = "Delivery, Quality and both AI sections" if af else "Delivery, Quality and % Epics by AI"
     scope_label = (f"{cfg.get('project_label', proj)} Jira, {team} team"
                    if team else f"{cfg.get('project_label', proj)} Jira")
-    if ed:
+    # "reconciled" overstates what actually happens: the AI/EDCT figures are cross-checked
+    # against a hand-pulled Power BI snapshot, and a mismatch is logged as a WARN rather than
+    # blocking the send -- so a stale snapshot (this one is from {last_synced}, not today)
+    # routinely produces a flagged divergence, not a clean reconciliation. Say that honestly.
+    if ed and cfg.get("edct_source") == "jira":
         gate = (f"verified before delivery: per-section freshness, the current month present in "
-                f"every series, and every AI/EDCT figure reconciled against the R&amp;D Efficiency "
-                f"Power BI report (snapshot {snapshot.get('last_synced', 'n/a')}). {live} are live "
-                f"Jira; EDCT is from Power BI, dated in its caption above.")
+                f"every series, and every AI figure cross-checked against the R&amp;D Efficiency "
+                f"Power BI report (snapshot {snapshot.get('last_synced', 'n/a')} -- divergences "
+                f"are logged as warnings, not hidden). {live}, plus EDCT, are all computed live "
+                f"from Jira; the Power BI report is used only as a cross-check, not as EDCT's "
+                f"source.")
+    elif ed:
+        gate = (f"verified before delivery: per-section freshness, the current month present in "
+                f"every series, and every AI/EDCT figure cross-checked against the R&amp;D "
+                f"Efficiency Power BI report (snapshot {snapshot.get('last_synced', 'n/a')} -- "
+                f"divergences are logged as warnings, not hidden). {live} are live Jira; EDCT is "
+                f"from Power BI, dated in its caption above.")
     else:
         # Team-scoped EDCT lives behind the Power BI TEAM filter, which needs an
         # interactive sign-in -- say so rather than shipping a stale or invented figure.
