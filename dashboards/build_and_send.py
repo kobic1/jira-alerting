@@ -345,12 +345,30 @@ def build_meta(data: dict, cfg: dict, snapshot: dict, today: dt.date) -> dict:
                 return i
         return len(months) - 1
 
-    # AI headline figures use the last CLOSED month -- a 3-day-old month is not a rate.
-    closed = last_closed(ae)
+    HEADLINE_MIN_DAY = 7  # calendar day of the month, not days-into-release
+
+    def headline_index(series: dict) -> int:
+        """Index of the month the headline stat should show. The current month starts
+        out as a 1-3 day sample (not a rate), so early on this falls back to the last
+        CLOSED month like last_closed() always did. But that fallback used to be
+        permanent -- on day 27 of August the stat cards were still showing July,
+        because "is this month over" never became "yes" until it actually was. Once
+        we're HEADLINE_MIN_DAY+ days into the current month, its sample is normally
+        large enough to headline directly, so switch to it instead of staying stuck a
+        full month behind. Below that day, or if the series doesn't have a partial
+        current month at all, defer to last_closed()."""
+        months = series["months"]
+        if months and str(months[-1]).endswith("*") and today.day >= HEADLINE_MIN_DAY:
+            return len(months) - 1
+        return last_closed(series)
+
+    # AI headline figures use the current month once it has enough days behind it to
+    # be a rate, not a 1-3 day sample -- see headline_index().
+    closed = headline_index(ae)
     ae_pct_closed = pct(ae["ai_epics"][closed], ae["total_epics"][closed])
     ae_cur = pct(ae["ai_epics"][-1], ae["total_epics"][-1])
     if af:
-        af_closed = last_closed(af)
+        af_closed = headline_index(af)
         af_pct_closed = pct(af["new_metrics"][af_closed], af["marked_ai"][af_closed])
         af_cur = pct(af["new_metrics"][-1], af["marked_ai"][-1])
 
@@ -358,7 +376,7 @@ def build_meta(data: dict, cfg: dict, snapshot: dict, today: dt.date) -> dict:
     peak = max(ql["open_trend"])
     peak_week = ql["weeks"][ql["open_trend"].index(peak)]
     edct_stale = ed and ed.get("as_of") != today.isoformat()
-    ed_closed = last_closed(ed) if ed else -1
+    ed_closed = headline_index(ed) if ed else -1
 
     # Without EDCT the third card would be a dead em-dash; for a team cut the count of
     # epics actually moving is the more useful number in that slot.
@@ -377,7 +395,7 @@ def build_meta(data: dict, cfg: dict, snapshot: dict, today: dt.date) -> dict:
         third,
         {"num": str(ql["open_trend"][-1]), "lbl": "Open bugs"},
         {"num": f"{af_pct_closed:.1f}%" if af else "&mdash;", "lbl": "AI field adoption"},
-        {"num": f"{ae_pct_closed:.1f}%", "lbl": f"Epics by AI ({ae['months'][closed].rstrip('*')[:3]})"},
+        {"num": f"{ae_pct_closed:.1f}%", "lbl": f"Epics by AI ({ae['months'][closed]})"},
     ]
 
     # Where a team is small, the in-flight breakdown is the story: "1 of 22" on its own
@@ -411,7 +429,13 @@ def build_meta(data: dict, cfg: dict, snapshot: dict, today: dt.date) -> dict:
                         f"&le;{ed.get('target_all', 10)}"
                         + (f" (all epics) / &le;{ed['target_ai']} (AI-assisted) targets. "
                            if ed.get("target_ai") is not None else " day target. ")
-                        + f"{ed['months'][ed_closed]} closed at {ed['values'][ed_closed]} days. "
+                        # "closed at" is wrong once ed_closed is the still-running current
+                        # month -- say "stands at ... month-to-date" instead, same distinction
+                        # as the AI captions above.
+                        + (f"{ed['months'][ed_closed]} stands at {ed['values'][ed_closed]} days "
+                           f"month-to-date. "
+                           if ed_closed == len(ed["months"]) - 1 and str(ed["months"][-1]).endswith("*")
+                           else f"{ed['months'][ed_closed]} closed at {ed['values'][ed_closed]} days. ")
                         + (f"Computed live from Jira changelogs &mdash; average calendar days in "
                            f"In Progress or Validation, excluding flagged days and "
                            f"Maintenance-category epics. Reconciles with the R&amp;D Efficiency "
@@ -441,9 +465,13 @@ def build_meta(data: dict, cfg: dict, snapshot: dict, today: dt.date) -> dict:
         "seclabel": "AI Adoption", "title": "% Epics Developed by AI Agents",
         "caption": (f"{ae_pct_closed:.0f}% of epics AI-developed in {ae['months'][closed]} "
                     f"({ae['ai_epics'][closed]} of {ae['total_epics'][closed]}); "
-                    # A month with no resolved epics has no rate -- "0 of 0 (0%)" reads as
-                    # a collapse in adoption when it only means nothing has closed yet.
-                    + (f"no epics resolved yet in {ae['months'][-1]}. "
+                    # A month with no resolved epics has no rate -- "0 of 0 (0%)" reads as a
+                    # collapse in adoption when it only means nothing has closed yet. And once
+                    # headline_index() has already picked the current month (closed == -1), a
+                    # second "month-to-date" sentence about that same month would just repeat
+                    # the first one -- only add it when it's telling you about a DIFFERENT month.
+                    + ("" if closed == len(ae["months"]) - 1 else
+                       f"no epics resolved yet in {ae['months'][-1]}. "
                        if not ae["total_epics"][-1] else
                        f"{ae['months'][-1]} stands at {ae['ai_epics'][-1]} of "
                        f"{ae['total_epics'][-1]} ({ae_cur:.0f}%) month-to-date. ")
@@ -459,8 +487,11 @@ def build_meta(data: dict, cfg: dict, snapshot: dict, today: dt.date) -> dict:
                         f"{af['months'][af_closed]} ({af['new_metrics'][af_closed]} of "
                         f"{af['marked_ai'][af_closed]}); "
                         # Denominator can legitimately be 0 early in a month, which would
-                        # otherwise print an impossible "1 of 0".
-                        + (f"no AI-marked issues resolved yet in {af['months'][-1]}. "
+                        # otherwise print an impossible "1 of 0". And skip the second sentence
+                        # entirely once af_closed already IS the current month -- see the
+                        # matching comment on the % Epics by AI caption above.
+                        + ("" if af_closed == len(af["months"]) - 1 else
+                           f"no AI-marked issues resolved yet in {af['months'][-1]}. "
                            if not af["marked_ai"][-1] else
                            f"{af_cur:.1f}% in {af['months'][-1]} so far "
                            f"({af['new_metrics'][-1]} of {af['marked_ai'][-1]}). ")
