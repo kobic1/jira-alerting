@@ -11,7 +11,7 @@ on:
 
 concurrency:
   group: daily-alerts
-  cancel-in-progress: true   # if a second run starts while first is running, cancel the second
+  cancel-in-progress: false  # queue the second run; it will see the cache hit and skip duplicate steps
 
 jobs:
   send-alerts:
