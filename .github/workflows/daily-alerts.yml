@@ -39,6 +39,7 @@ jobs:
           SNOOZE_FLOW_URL: ${{ secrets.SNOOZE_FLOW_URL }}
         run: |
           python main.py --run-once --project PMN --project PMSTND
+          python main.py --run-once --project CXCO
 
       - name: Send managerial summary to all subscribers
         env:
