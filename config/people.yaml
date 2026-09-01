@@ -37,8 +37,7 @@ people:
   - display_name: "Idan Kaizerman"
     email: "idan.kaizerman@nice.com"
     jira_account_id: "712020:1445c4c6-dbef-497e-8604-4b2b6a74a4ea"
-    roles:
-      - epic_closure_watcher
+    roles: []
 
   # ── Managerial summary subscribers ───────────────────────────────────────────
   # Listed here so the daily managerial summary greeting shows their display name.
