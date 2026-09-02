@@ -257,17 +257,19 @@ def chart_ai_epics_pct(d, outpath):
     bw = 0.35
     ax.bar(x - bw / 2, total_epics, width=bw, color=GREY, label="Total epics resolved", zorder=3)
     ax.bar(x + bw / 2, ai_epics, width=bw, color=PURPLE, label="Epics developed by AI", zorder=3)
+    label_bbox = dict(boxstyle="round,pad=0.25", facecolor="#FDEBD3", edgecolor="none", alpha=0.9)
     for i, v in enumerate(total_epics):
-        ax.text(i - bw / 2, v + max(total_epics) * 0.02, str(v), ha="center", fontsize=13, color="#555")
+        ax.text(i - bw / 2, v + max(total_epics) * 0.02, str(v), ha="center", fontsize=13, color="#555",
+                bbox=label_bbox)
     for i, v in enumerate(ai_epics):
         ax.text(i + bw / 2, v + max(total_epics) * 0.02, str(v), ha="center", fontsize=13,
-                fontweight="bold", color=PURPLE)
+                fontweight="bold", color=PURPLE, bbox=label_bbox)
 
     ax2 = ax.twinx()
     ax2.plot(x, pct, color=AMBER, marker="o", markersize=7, linewidth=2.6, label="% developed by AI", zorder=4)
     for i, v in enumerate(pct):
         ax2.annotate(f"{v:.0f}%", (i, v), textcoords="offset points", xytext=(-22, 14),
-                     ha="center", fontsize=14, fontweight="bold", color=AMBER)
+                     ha="center", fontsize=14, fontweight="bold", color=AMBER, bbox=label_bbox)
 
     ax.set_xticks(x)
     ax.set_xticklabels(months, fontsize=13)
@@ -303,17 +305,19 @@ def chart_ai_fields_adoption(d, outpath):
     bw = 0.35
     ax.bar(x - bw / 2, marked_ai, width=bw, color=PURPLE, label="Issues marked as AI", zorder=3)
     ax.bar(x + bw / 2, new_metrics, width=bw, color=TEAL, label="Having new AI metrics", zorder=3)
+    label_bbox = dict(boxstyle="round,pad=0.25", facecolor="#FDEBD3", edgecolor="none", alpha=0.9)
     for i, v in enumerate(marked_ai):
         ax.text(i - bw / 2, v + max(marked_ai) * 0.02, str(v), ha="center", fontsize=13,
-                fontweight="bold", color=PURPLE)
+                fontweight="bold", color=PURPLE, bbox=label_bbox)
     for i, v in enumerate(new_metrics):
-        ax.text(i + bw / 2, v + max(marked_ai) * 0.02, str(v), ha="center", fontsize=13, color=TEAL_EDGE)
+        ax.text(i + bw / 2, v + max(marked_ai) * 0.02, str(v), ha="center", fontsize=13, color=TEAL_EDGE,
+                bbox=label_bbox)
 
     ax2 = ax.twinx()
     ax2.plot(x, pct, color=AMBER, marker="o", markersize=7, linewidth=2.6, label="% adoption", zorder=4)
     for i, v in enumerate(pct):
         ax2.annotate(f"{v:.1f}%", (i, v), textcoords="offset points", xytext=(-22, 14),
-                     ha="center", fontsize=14, fontweight="bold", color=AMBER)
+                     ha="center", fontsize=14, fontweight="bold", color=AMBER, bbox=label_bbox)
 
     ax.set_xticks(x)
     ax.set_xticklabels(months, fontsize=13)
