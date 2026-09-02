@@ -35,6 +35,7 @@ import os
 import subprocess
 import sys
 import time
+import urllib.parse
 from pathlib import Path
 
 import requests
@@ -150,6 +151,11 @@ def team_clauses(cfg: dict) -> tuple[str, str]:
     return f' AND {ts["any_clause"]}', f' AND {ts["bug_clause"]}'
 
 
+def jira_link(j: "Jira", jql: str) -> str:
+    """A clickable Jira issue-search URL for the exact JQL a chart value came from."""
+    return f"{j.base}/issues?jql={urllib.parse.quote(jql)}"
+
+
 # ------------------------------------------------------------------- data sections
 
 def build_delivery(j: Jira, cfg: dict, today: dt.date) -> dict:
@@ -207,7 +213,7 @@ def build_quality(j: Jira, cfg: dict, today: dt.date, weeks_back: int = 9) -> di
             for i in issues]
 
     baseline = sum(1 for c, r in recs if c and c < ws and (r is None or r >= ws))
-    created, resolved, open_trend = [], [], []
+    created, resolved, open_trend, open_trend_links = [], [], [], []
     run = baseline
     for w in weeks:
         e = w + dt.timedelta(days=7)
@@ -217,9 +223,18 @@ def build_quality(j: Jira, cfg: dict, today: dt.date, weeks_back: int = 9) -> di
         created.append(c)
         resolved.append(rr)
         open_trend.append(run)
+        # Open-as-of-week-end, reconstructed as its own JQL rather than a JQL "list all
+        # weeks" query -- created before the cutoff and either still open or resolved
+        # after it. This is the same baseline+running-total logic above, just phrased
+        # as a standalone search so the "Total Open" trend-line label can link to it.
+        open_trend_links.append(jira_link(j,
+            f'project = {cfg["project"]} AND issuetype = Bug '
+            f'AND summary !~ "\\"[Accessibility]*\\"" {extra}{team} '
+            f'AND created < "{e}" AND (resolutiondate is EMPTY OR resolutiondate >= "{e}")'))
     return {
         "weeks": [w.strftime("%d%b") for w in weeks],
         "created": created, "resolved": resolved, "open_trend": open_trend,
+        "open_trend_links": open_trend_links,
         "as_of": today.isoformat(),
     }
 
@@ -229,7 +244,7 @@ def build_ai_epics(j: Jira, cfg: dict, today: dt.date) -> dict:
     cf[15229] Implemented-by-AI-Agent FIELD, not the AGENTIC_AI_CODE label --
     the label undercounts (July 2026: 20 by label vs 23 by field, and the
     report says 23)."""
-    months, totals, ais = [], [], []
+    months, totals, ais, pct_links = [], [], [], []
     full = cfg.get("ai_epics_month_style", "short") == "full"
     team, _ = team_clauses(cfg)
     for m in range(cfg.get("ai_epics_first_month", 1), today.month + 1):
@@ -239,10 +254,14 @@ def build_ai_epics(j: Jira, cfg: dict, today: dt.date) -> dict:
         label = calendar.month_name[m] if full else MONTHS_SHORT[m - 1]
         months.append(label + ("*" if m == today.month else ""))
         totals.append(j.count(base))
-        ais.append(j.count(f'{base} AND {CF_IMPLEMENTED_BY_AI} = "Yes"'))
+        ai_jql = f'{base} AND {CF_IMPLEMENTED_BY_AI} = "Yes"'
+        ais.append(j.count(ai_jql))
+        # The %-line label links to its numerator (the AI-developed epics that made
+        # the rate), the more useful drill-through than the plain total.
+        pct_links.append(jira_link(j, ai_jql))
     return {"_definition": "Total = epics Done resolved in month; AI = same with "
                            "cf[15229] Implemented by AI Agent = Yes (the report's definition).",
-            "months": months, "total_epics": totals, "ai_epics": ais,
+            "months": months, "total_epics": totals, "ai_epics": ais, "pct_links": pct_links,
             "as_of": today.isoformat()}
 
 
@@ -302,7 +321,7 @@ def build_ai_fields(j: Jira, cfg: dict, today: dt.date, first_month: int = 4) ->
     'AI Fields Adaption' page filters: ALL issue types, ALL statuses, by resolved
     date -- so the metrics series sums to the report's quarterly '# Issues with PR
     ID'. Narrowing this to Done Stories/Bugs understates it badly."""
-    months, marked, metrics = [], [], []
+    months, marked, metrics, pct_links = [], [], [], []
     team, _ = team_clauses(cfg)
     for m in range(first_month, today.month + 1):
         lo, hi = month_bounds(today.year, m)
@@ -310,10 +329,14 @@ def build_ai_fields(j: Jira, cfg: dict, today: dt.date, first_month: int = 4) ->
         months.append(calendar.month_name[m] + ("*" if m == today.month else ""))
         proj = cfg["project"]
         marked.append(j.count(f'project = {proj}{team} AND {CF_IMPLEMENTED_BY_AI} = "Yes" AND {window}'))
-        metrics.append(j.count(f'project = {proj}{team} AND {CF_PR_URL} is not EMPTY AND {window}'))
+        metrics_jql = f'project = {proj}{team} AND {CF_PR_URL} is not EMPTY AND {window}'
+        metrics.append(j.count(metrics_jql))
+        # The %-line label links to its numerator (issues that actually carry the new
+        # metric), the more useful drill-through than the marked-as-AI denominator.
+        pct_links.append(jira_link(j, metrics_jql))
     return {"_definition": "Marked as AI = cf[15229] = Yes; having metrics = cf[15262] PR-URL "
                            "populated. All issue types, all statuses, by resolved date.",
-            "months": months, "marked_ai": marked, "new_metrics": metrics,
+            "months": months, "marked_ai": marked, "new_metrics": metrics, "pct_links": pct_links,
             "as_of": today.isoformat()}
 
 

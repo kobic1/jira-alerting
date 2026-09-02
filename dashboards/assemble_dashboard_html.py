@@ -49,7 +49,7 @@ h1 { font-size:21px; margin:0 0 20px; }
 .section { border-left:3px solid var(--c); padding-left:18px; margin-bottom:34px; background:linear-gradient(90deg, var(--tint), transparent 55%); border-radius:0 8px 8px 0; padding-top:4px; padding-bottom:4px; }
 .section .seclabel { font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:0.06em; color:var(--c); margin-bottom:4px; }
 .section .stitle { font-size:15px; font-weight:600; margin-bottom:12px; }
-.section img { width:100%; border-radius:4px; }
+.section img { width:100%; height:auto; border-radius:4px; }
 .section .cap { font-size:12px; color:#666; margin-top:9px; line-height:1.5; }
 footer { font-size:11px; color:#999; border-top:1px solid #eee; padding-top:14px; margin-top:6px; }
 
@@ -81,13 +81,32 @@ def main():
     )
     html.append(f'<div class="stat-row">{stat_html}</div>\n')
 
-    for sec in meta["sections"]:
+    for idx, sec in enumerate(meta["sections"]):
         img_path = os.path.join(args.charts_dir, sec["file"])
         img_b64 = b64(img_path)
+        # A sibling <file>.map.json (written by build_charts.py for charts with
+        # clickable trend-line labels) turns into a real HTML image map: usemap on
+        # the <img> plus a <map> of <area> rects, each linking to the exact Jira
+        # search behind that value. Charts with nothing clickable have no sidecar
+        # file, so this is a no-op for them.
+        img_attrs, map_html = "", ""
+        map_path = f"{img_path}.map.json"
+        if os.path.exists(map_path):
+            imap = json.load(open(map_path))
+            map_name = f"map_{idx}"
+            areas = "".join(
+                f'<area shape="rect" coords="{",".join(str(c) for c in a["coords"])}" '
+                f'href="{a["href"]}" target="_blank" alt="View in Jira">'
+                for a in imap["areas"]
+            )
+            map_html = f'<map name="{map_name}">{areas}</map>'
+            # width/height must match the PNG's native pixels for browsers to scale
+            # the map's rect coords correctly when CSS resizes the displayed image.
+            img_attrs = f' usemap="#{map_name}" width="{imap["width"]}" height="{imap["height"]}"'
         html.append(
             f'<div class="section" style="--c:{sec["rail"]}; --tint:{sec["tint"]}">\n'
             f'<div class="seclabel">{sec["seclabel"]}</div><div class="stitle">{sec["title"]}</div>\n'
-            f'<img src="data:image/png;base64,{img_b64}">'
+            f'<img src="data:image/png;base64,{img_b64}"{img_attrs}>{map_html}'
             f'<div class="cap">{sec["caption"]}</div></div>\n'
         )
 
