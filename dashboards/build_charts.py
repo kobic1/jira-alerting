@@ -223,7 +223,9 @@ def chart_quality(d, outpath):
     ax2.plot(x, open_trend, color=AMBER, marker="o", markersize=7, linewidth=2.6, label="Total Open", zorder=4)
     for i, v in enumerate(open_trend):
         ax2.annotate(str(v), (i, v), textcoords="offset points", xytext=(0, 11),
-                     ha="center", fontsize=13, fontweight="bold", color=AMBER)
+                     ha="center", fontsize=13, fontweight="bold", color=AMBER,
+                     bbox=dict(boxstyle="round,pad=0.25", facecolor="#FDEBD3",
+                               edgecolor="none", alpha=0.9))
 
     ax.set_xticks(x)
     ax.set_xticklabels(weeks, rotation=0, fontsize=13)
