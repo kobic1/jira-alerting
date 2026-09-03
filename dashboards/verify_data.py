@@ -171,45 +171,16 @@ def check_edct(data, report, today):
 
 
 def check_ai_epics(data, report, today):
-    rep = (report or {}).get("ai_usage_trend")
-    if not rep:
-        record("SKIP", "reconcile:ai_epics_pct", "no ai_usage_trend in report_values.json")
-        return
-    d = data.get("ai_epics_pct")
-    if not d:
-        record("FAIL", "reconcile:ai_epics_pct", "no ai_epics_pct section in data.json")
-        return
-    ours = {}
-    for label, tot, ai in zip(d["months"], d["total_epics"], d["ai_epics"]):
-        y, m = norm_month(label, today.year)
-        ours[f"{y}/{m:02d}"] = (tot, ai)
-    for key, want in rep.items():
-        y, m = norm_month(key, today.year)
-        k = f"{y}/{m:02d}"
-        if k not in ours:
-            record(drift_status(y, m), f"reconcile:ai_epics {k}",
-                   f"report has {want['ai']}/{want['total']}, dashboard has no such month")
-            continue
-        tot, ai = ours[k]
-        if (tot, ai) == (want["total"], want["ai"]):
-            record("PASS", f"reconcile:ai_epics {k}", f"{ai}/{tot} == report")
-        elif tot == want["total"] and 0 < ai - want["ai"] <= max(2, round(0.1 * want["total"])):
-            # Direction matters. The snapshot is a point-in-time copy of Power BI, and the
-            # AI flag keeps getting set on already-resolved epics, so Jira drifting UPWARD
-            # by a little -- same denominator, a few more flagged -- is people tagging work,
-            # not a broken query. Drifting DOWNWARD is the undercount signature (the label
-            # bug always read low), so that stays a hard failure below, closed month or not.
-            record("WARN", f"reconcile:ai_epics {k}",
-                   f"dashboard {ai}/{tot} vs report {want['ai']}/{want['total']} "
-                   f"(+{ai - want['ai']}) -- Jira ahead of the snapshot; an epic was flagged "
-                   f"AI after the pull. Re-sync the Power BI snapshot when convenient.")
-        else:
-            record("FAIL" if ai < want["ai"] else drift_status(y, m), f"reconcile:ai_epics {k}",
-                   f"dashboard {ai}/{tot} != report {want['ai']}/{want['total']}"
-                   + (f" -- dashboard reads LOW, which is the AGENTIC_AI_CODE-label "
-                      f"undercount signature; the series must use cf[15229] "
-                      f"'Implemented by AI Agent' (the 2026-08-05 bug)"
-                      if ai < want["ai"] else " -- unexpected divergence, check both sources"))
+    # 2026-09-03: ai_epics_pct now excludes Maintenance-category epics (Kobi's call --
+    # a maintenance epic being AI-assisted or not says little about feature-development
+    # AI adoption). The Power BI report this reconciles against does NOT exclude them,
+    # so every month now differs from the snapshot by a fixed, deliberate offset (the
+    # excluded epics), not drift. Comparing against it would flag that offset as a bug
+    # every single day. Skip until/unless the snapshot itself is rebuilt on the same
+    # excl.-Maintenance basis -- there's no live-Jira way to reconcile this anymore.
+    record("SKIP", "reconcile:ai_epics_pct",
+           "definition changed 2026-09-03 (excludes Maintenance epics); "
+           "report_values.json does not, so no valid comparison exists")
 
 
 def check_ai_fields(data, report, today, tolerance=3):

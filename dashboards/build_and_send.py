@@ -48,6 +48,13 @@ HERE = Path(__file__).resolve().parent
 # Field IDs (per-instance, stable across releases -- see the skill's jira_field_ids.md)
 CF_IMPLEMENTED_BY_AI = "cf[15229]"   # "Implemented by AI Agent" (Yes/No)
 CF_PR_URL = "cf[15262]"              # PR URL -- the "new AI metrics" signal
+CF_ISSUE_CATEGORY = "cf[10139]"      # "Issue Category" dropdown -- same field EDCT
+                                     # excludes Maintenance on (edct_from_jira.py)
+EXCLUDED_CATEGORY = "Maintenance"
+CF_CLOSED_DATE = "cf[10099]"          # "Closed" date -- bucketing field for the AI metrics table
+CF_CODE_COVERAGE = "customfield_15308"
+CF_DEV_DURATION = "customfield_15309"
+CF_REVIEW_DURATION = "customfield_15310"
 
 MONTHS_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
                 "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
@@ -162,9 +169,9 @@ def build_delivery(j: Jira, cfg: dict, today: dt.date) -> dict:
     proj, rel = cfg["project"], cfg["release"]
     start = d(cfg["release_start_date"])
     team, _ = team_clauses(cfg)
-    issues = j.search(
-        f'project = {proj} AND fixVersion = "{rel}" AND issuetype = Epic AND status = Done{team}',
-        ["resolutiondate"])
+    delivered_jql = (f'project = {proj} AND fixVersion = "{rel}" AND issuetype = Epic '
+                      f'AND status = Done{team}')
+    issues = j.search(delivered_jql, ["resolutiondate"])
     days = []
     for i in issues:
         rd = d((i.get("fields") or {}).get("resolutiondate"))
@@ -189,6 +196,9 @@ def build_delivery(j: Jira, cfg: dict, today: dt.date) -> dict:
         "days_into_release_delivered": days,
         "forecast_override": cfg.get("forecast_override"),
         "scope_breakdown": scope,
+        # For the "Epics delivered" stat card link -- the delivered-epics search
+        # itself, not a per-chart-point link (the delivery chart has no image map).
+        "delivered_link": jira_link(j, delivered_jql),
         "as_of": today.isoformat(),
     }
 
@@ -243,14 +253,19 @@ def build_ai_epics(j: Jira, cfg: dict, today: dt.date) -> dict:
     """Reproduces the Power BI '% AI Usage Trend' chart. AI epics are the
     cf[15229] Implemented-by-AI-Agent FIELD, not the AGENTIC_AI_CODE label --
     the label undercounts (July 2026: 20 by label vs 23 by field, and the
-    report says 23)."""
+    report says 23). Maintenance-category epics are excluded (Kobi, 2026-09-03),
+    the same exclusion EDCT already applies -- a maintenance epic being AI-assisted
+    or not says little about feature-development AI adoption, and without this the
+    denominator was pulling in epics none of the other sections count."""
     months, totals, ais, pct_links = [], [], [], []
     full = cfg.get("ai_epics_month_style", "short") == "full"
     team, _ = team_clauses(cfg)
     for m in range(cfg.get("ai_epics_first_month", 1), today.month + 1):
         lo, hi = month_bounds(today.year, m)
         window = f'AND resolutiondate >= "{lo}" AND resolutiondate < "{hi}"'
-        base = f'project = {cfg["project"]} AND issuetype = Epic AND status = Done{team} {window}'
+        base = (f'project = {cfg["project"]} AND issuetype = Epic AND status = Done{team} '
+                f'AND ({CF_ISSUE_CATEGORY} is EMPTY OR {CF_ISSUE_CATEGORY} != "{EXCLUDED_CATEGORY}") '
+                f'{window}')
         label = calendar.month_name[m] if full else MONTHS_SHORT[m - 1]
         months.append(label + ("*" if m == today.month else ""))
         totals.append(j.count(base))
@@ -278,7 +293,7 @@ def build_edct(cfg: dict, today: dt.date) -> dict:
     j = E.Jira()
     ai_only = cfg.get("edct_ai_only", True)
     team = (cfg.get("team_scope") or {}).get("any_clause")
-    months, values = [], []
+    months, values, links = [], [], []
     empty_current = None
     for m in range(cfg.get("edct_first_month", 4), today.month + 1):
         lo, hi = month_bounds(today.year, m)
@@ -304,7 +319,12 @@ def build_edct(cfg: dict, today: dt.date) -> dict:
             continue
         months.append(f"{today.year}/{m:02d}" + ("*" if m == today.month else ""))
         values.append(round(sum(vals) / len(vals)))
-    out = {"months": months, "values": values,
+        # Same population as `vals`, minus the Maintenance-category exclusion (that
+        # filter runs client-side against the changelog, but is expressible in JQL
+        # too) -- for the "EDCT days" stat card link.
+        links.append(jira_link(j, f'{jql} AND ({E.CF_ISSUE_CATEGORY} is EMPTY OR '
+                                   f'{E.CF_ISSUE_CATEGORY} != "{E.EXCLUDED_CATEGORY}")'))
+    out = {"months": months, "values": values, "links": links,
            "source": "jira",
            "target_all": cfg.get("edct_target", 10), "target_ai": None,
            "_definition": "Average calendar days in In Progress or Validation, excluding "
@@ -340,10 +360,95 @@ def build_ai_fields(j: Jira, cfg: dict, today: dt.date, first_month: int = 4) ->
             "as_of": today.isoformat()}
 
 
+def build_ai_metrics_table(j: Jira, cfg: dict, today: dt.date) -> dict:
+    """The jira-implementer-stat skill's cohort table (Issues Marked as AI, Having AI
+    Metrics Stats, %, median Dev/Review duration, average Code Coverage) for EPICS and
+    BUG+STORY, all teams combined -- Kobi asked for "just the table as is, without any
+    filtering ability" (2026-09-03), not the interactive multi-team dashboard the skill
+    also supports. Bucketed by the Closed date field (cf[10099]), confirmed populated
+    for this project; last 4 calendar months including the current partial one."""
+    proj = cfg["project"]
+    FIELDS = ["customfield_15262", CF_CODE_COVERAGE, CF_DEV_DURATION,
+              CF_REVIEW_DURATION, "customfield_10099"]
+    GROUPS = [("epics", "issuetype = Epic"), ("bug_story", "issuetype in (Story, Bug)")]
+
+    months: list[tuple[int, int]] = []
+    y, m = today.year, today.month
+    for _ in range(4):
+        months.append((y, m))
+        m -= 1
+        if m == 0:
+            m, y = 12, y - 1
+    months.reverse()
+    lo, _ = month_bounds(*months[0])
+    _, hi = month_bounds(*months[-1])
+
+    def median(vals: list[float]) -> float | None:
+        vals = sorted(vals)
+        n = len(vals)
+        if not n:
+            return None
+        mid = n // 2
+        return vals[mid] if n % 2 else (vals[mid - 1] + vals[mid]) / 2
+
+    result: dict = {
+        "months": [MONTHS_SHORT[mo - 1] + ("*" if (yr, mo) == (today.year, today.month) else "")
+                   for yr, mo in months],
+        "as_of": today.isoformat(),
+    }
+    for key, type_clause in GROUPS:
+        jql = (f'project = {proj} AND {type_clause} AND status = Done '
+               f'AND {CF_IMPLEMENTED_BY_AI} = "Yes" '
+               f'AND {CF_CLOSED_DATE} >= "{lo}" AND {CF_CLOSED_DATE} < "{hi}"')
+        buckets: dict[tuple[int, int], list[dict]] = {ym: [] for ym in months}
+        bounds = {ym: (d(month_bounds(*ym)[0]), d(month_bounds(*ym)[1])) for ym in months}
+        for i in j.search(jql, FIELDS):
+            f = i["fields"]
+            closed = d(f.get("customfield_10099"))
+            if not closed:
+                continue
+            for ym, (b_lo, b_hi) in bounds.items():
+                if b_lo <= closed < b_hi:
+                    buckets[ym].append(f)
+                    break
+        marked, having, pct_vals, med_dev, med_rev, avg_cov = [], [], [], [], [], []
+        for ym in months:
+            items = buckets[ym]
+            marked.append(len(items))
+            hv = sum(1 for f in items if f.get("customfield_15262"))
+            having.append(hv)
+            pct_vals.append(100.0 * hv / len(items) if items else 0.0)
+            med_dev.append(median([f[CF_DEV_DURATION] for f in items
+                                    if f.get(CF_DEV_DURATION) is not None]))
+            med_rev.append(median([f[CF_REVIEW_DURATION] for f in items
+                                    if f.get(CF_REVIEW_DURATION) is not None]))
+            # A recorded 0 is treated as "not measured", not a genuine 0% coverage --
+            # `if f.get(...)` excludes both None and 0 since both are falsy.
+            cov = [f[CF_CODE_COVERAGE] for f in items if f.get(CF_CODE_COVERAGE)]
+            avg_cov.append(sum(cov) / len(cov) if cov else None)
+        result[key] = {"marked_ai": marked, "having_metrics": having, "pct": pct_vals,
+                        "median_dev_min": med_dev, "median_review_min": med_rev,
+                        "avg_coverage_pct": avg_cov}
+    return result
+
+
 # ------------------------------------------------------------------------ captions
 
 def pct(a: int, b: int) -> float:
     return 100.0 * a / b if b else 0.0
+
+
+def short_month(label: str) -> str:
+    """Normalize any of this file's three month-label formats ("2026/08", "August",
+    "Aug", each possibly with a trailing '*' for the partial current month) to the
+    short "Aug"/"Aug*" form. Without this, three stat cards for the same month can
+    each print it differently ("2026/08" / "August" / "Aug") side by side, which
+    reads as three different months at a glance, not one."""
+    star = "*" if label.endswith("*") else ""
+    body = label.rstrip("*")
+    if "/" in body:
+        return MONTHS_SHORT[int(body.split("/")[1]) - 1] + star
+    return body[:3] + star
 
 
 def build_meta(data: dict, cfg: dict, snapshot: dict, today: dt.date) -> dict:
@@ -368,20 +473,14 @@ def build_meta(data: dict, cfg: dict, snapshot: dict, today: dt.date) -> dict:
                 return i
         return len(months) - 1
 
-    HEADLINE_MIN_DAY = 7  # calendar day of the month, not days-into-release
-
     def headline_index(series: dict) -> int:
-        """Index of the month the headline stat should show. The current month starts
-        out as a 1-3 day sample (not a rate), so early on this falls back to the last
-        CLOSED month like last_closed() always did. But that fallback used to be
-        permanent -- on day 27 of August the stat cards were still showing July,
-        because "is this month over" never became "yes" until it actually was. Once
-        we're HEADLINE_MIN_DAY+ days into the current month, its sample is normally
-        large enough to headline directly, so switch to it instead of staying stuck a
-        full month behind. Below that day, or if the series doesn't have a partial
-        current month at all, defer to last_closed()."""
+        """Index of the month the headline stat should show. Always the current
+        month once it exists (marked '*' for partial), however few days it has
+        behind it -- Kobi confirmed (2026-09-03) he'd rather see a fresh 1-3 day
+        sample than a stat card stuck on last month. Falls back to last_closed()
+        only when the series has no partial current month at all."""
         months = series["months"]
-        if months and str(months[-1]).endswith("*") and today.day >= HEADLINE_MIN_DAY:
+        if months and str(months[-1]).endswith("*"):
             return len(months) - 1
         return last_closed(series)
 
@@ -404,21 +503,39 @@ def build_meta(data: dict, cfg: dict, snapshot: dict, today: dt.date) -> dict:
     # Without EDCT the third card would be a dead em-dash; for a team cut the count of
     # epics actually moving is the more useful number in that slot.
     sb = dl.get("scope_breakdown") or {}
+    ed_links = ed.get("links") or [] if ed else []
     if ed:
-        third = {"num": str(ed["values"][ed_closed]), "lbl": "EDCT days"}
+        # Say which month this is -- silently showing last month's number with no
+        # qualifier read as a bug (Kobi flagged it, 2026-09-03) once "Epics by AI"
+        # started doing this and this card didn't: two cards, two different time
+        # bases, neither one saying so.
+        third = {"num": str(ed["values"][ed_closed]),
+                 "lbl": f"EDCT days ({short_month(ed['months'][ed_closed])})"}
+        if ed_closed < len(ed_links):
+            third["href"] = ed_links[ed_closed]
     elif sb:
         third = {"num": str(sb.get("In Progress", 0) + sb.get("Validation", 0)),
                  "lbl": "In dev / validation"}
     else:
         third = {"num": "&mdash;", "lbl": "EDCT days"}
 
+    # Charts stay plain images (HTML image maps confirmed not to render as clickable
+    # in Kobi's mail client), so the stat cards -- real HTML text, not raster -- are
+    # where "click to see the Jira issues" actually works. Each href reuses the exact
+    # JQL that produced the number above it.
+    open_bugs_links = ql.get("open_trend_links") or []
     stats = [
-        {"num": str(dl["current_delivered"]), "lbl": "Epics delivered"},
+        {"num": str(dl["current_delivered"]), "lbl": "Epics delivered",
+         **({"href": dl["delivered_link"]} if dl.get("delivered_link") else {})},
         {"num": str(forecast), "lbl": "Target epics" if team else "Forecast epics"},
         third,
-        {"num": str(ql["open_trend"][-1]), "lbl": "Open bugs"},
-        {"num": f"{af_pct_closed:.1f}%" if af else "&mdash;", "lbl": "AI field adoption"},
-        {"num": f"{ae_pct_closed:.1f}%", "lbl": f"Epics by AI ({ae['months'][closed]})"},
+        {"num": str(ql["open_trend"][-1]), "lbl": "Open bugs",
+         **({"href": open_bugs_links[-1]} if open_bugs_links else {})},
+        {"num": f"{af_pct_closed:.1f}%" if af else "&mdash;",
+         "lbl": f"AI field adoption ({short_month(af['months'][af_closed])})" if af else "AI field adoption",
+         **({"href": af["pct_links"][af_closed]} if af and af_closed < len(af.get("pct_links") or []) else {})},
+        {"num": f"{ae_pct_closed:.1f}%", "lbl": f"Epics by AI ({short_month(ae['months'][closed])})",
+         **({"href": ae["pct_links"][closed]} if closed < len(ae.get("pct_links") or []) else {})},
     ]
 
     # Where a team is small, the in-flight breakdown is the story: "1 of 22" on its own
@@ -522,7 +639,6 @@ def build_meta(data: dict, cfg: dict, snapshot: dict, today: dt.date) -> dict:
                         f"report's AI Fields Adaption page &mdash; all issue types and statuses by "
                         f"resolved date. Live from {proj} Jira."),
         })
-
     live = "Delivery, Quality and both AI sections" if af else "Delivery, Quality and % Epics by AI"
     scope_label = (f"{cfg.get('project_label', proj)} Jira, {team} team"
                    if team else f"{cfg.get('project_label', proj)} Jira")
@@ -550,7 +666,7 @@ def build_meta(data: dict, cfg: dict, snapshot: dict, today: dt.date) -> dict:
                 f"every series. {live} are live Jira. <b>Epic Dev Cycle Time is not included:</b> "
                 f"team-scoped EDCT is only available from the R&amp;D Efficiency Power BI report, "
                 f"which needs an interactive sign-in and cannot be read by this automated run.")
-    return {
+    out = {
         "release": cfg["release"], "project": proj,
         "as_of_label": today.strftime("%b %-d %Y"),
         "stats": stats, "sections": sections,
@@ -558,6 +674,33 @@ def build_meta(data: dict, cfg: dict, snapshot: dict, today: dt.date) -> dict:
                    f"Months marked * are partial."
                    + (f" {cfg['footer_note']}" if cfg.get("footer_note") else "")),
     }
+
+    amt = data.get("ai_metrics_table")
+    if amt:
+        def fmt1(x):
+            """Thousands separator, at most one decimal, trailing '.0' dropped."""
+            if x is None:
+                return "&mdash;"
+            s = f"{x:,.1f}"
+            return s[:-2] if s.endswith(".0") else s
+
+        def group_rows(g: dict) -> dict:
+            return {
+                "Issues Marked as AI": [str(v) for v in g["marked_ai"]],
+                "Having AI Metrics Stats (PR URL)": [str(v) for v in g["having_metrics"]],
+                "%": [f"{v:.1f}%" for v in g["pct"]],
+                "Median Development Time (min)": [fmt1(v) for v in g["median_dev_min"]],
+                "Median Review Time (min)": [fmt1(v) for v in g["median_review_min"]],
+                "Average Code Coverage (%)": [fmt1(v) for v in g["avg_coverage_pct"]],
+            }
+
+        out["ai_metrics_table"] = {
+            "months": amt["months"],
+            "epics_rows": group_rows(amt["epics"]),
+            "bug_story_rows": group_rows(amt["bug_story"]),
+            "as_of": amt["as_of"],
+        }
+    return out
 
 
 # ---------------------------------------------------------------------------- main
@@ -669,6 +812,9 @@ def main() -> int:
         data.setdefault("omitted_sections", {})["ai_fields_adoption"] = (
             cfg.get("footer_note")
             or f"{cfg['project']} has not instrumented the AI code-metric fields")
+
+    if cfg.get("sections", {}).get("ai_metrics_table"):
+        data["ai_metrics_table"] = build_ai_metrics_table(j, cfg, today)
 
     # EDCT: snapshot only. Flag the current month as a deliberate omission when the
     # snapshot predates it, so the verifier warns instead of failing the build.

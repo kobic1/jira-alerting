@@ -75,45 +75,16 @@ PURPLE = "#7B4FC7"     # AI Adoption rail
 GREY = "#B7B7C9"       # neutral / baseline bars
 INK = "#1A1A1A"
 
-# Light tints for value-label backgrounds -- each pairs with the text color it sits
-# behind (amber text on light amber, purple on light purple, etc.) rather than one
-# color for every label regardless of what it's labeling.
+# Light tint for the trend-line value labels' background -- the only labels these
+# charts carry, so only the amber one is needed.
 LIGHT_AMBER = "#FDEBD3"
-LIGHT_PURPLE = "#EDE0FA"
-LIGHT_TEAL = "#DFF6EE"
-LIGHT_GREY = "#EAEAEF"
 
-IMAGEMAP_DPI = 160  # must match every fig.savefig(..., dpi=...) call below
-
-
-def write_imagemap(outpath, fig, items):
-    """items: [(artist, href), ...] for the trend-line labels that should be
-    clickable. Persists each artist's rendered pixel bbox (top-left image
-    coords, matching the PNG fig.savefig() is about to write) plus its href as
-    a sibling <outpath>.map.json -- assemble_dashboard_html.py turns that into
-    a real HTML <map>/<area> without re-deriving chart-internal pixel math.
-    No-ops if items is empty (nothing clickable on this chart)."""
-    if not items:
-        return
-    fig.set_dpi(IMAGEMAP_DPI)  # must match savefig's dpi or the pixel math is off
-    fig.canvas.draw()
-    renderer = fig.canvas.get_renderer()
-    w_px, h_px = fig.get_size_inches() * fig.dpi
-    areas = []
-    for artist, href in items:
-        # The visible clickable-looking region is the light-orange PILL, which is a
-        # separate FancyBboxPatch behind the text (from bbox=...), not the text's own
-        # tight glyph box -- using get_window_extent() on the text artist directly
-        # would make the real click target smaller than what the label looks like.
-        patch = artist.get_bbox_patch() if hasattr(artist, "get_bbox_patch") else None
-        bbox = (patch or artist).get_window_extent(renderer=renderer)
-        # matplotlib's bbox origin is bottom-left; image coords are top-left, hence
-        # the height-flip on y.
-        areas.append({"coords": [round(bbox.x0), round(h_px - bbox.y1),
-                                  round(bbox.x1), round(h_px - bbox.y0)],
-                      "href": href})
-    with open(f"{outpath}.map.json", "w") as f:
-        json.dump({"width": round(w_px), "height": round(h_px), "areas": areas}, f)
+# NOTE: an earlier version of this file made trend-line labels "clickable" via HTML
+# image maps (a per-label <area> over the rendered PNG). Confirmed by Kobi's own test
+# that this doesn't survive his email client -- charts render as plain images there,
+# no clickable regions. Removed; see assemble_dashboard_html.py for where the top
+# stat cards now carry the links instead (plain <a> tags on real HTML text, not an
+# image map, so they work everywhere).
 
 
 plt.rcParams.update({
@@ -262,15 +233,11 @@ def chart_quality(d, outpath):
 
     ax2 = ax.twinx()
     ax2.plot(x, open_trend, color=AMBER, marker="o", markersize=7, linewidth=2.6, label="Total Open", zorder=4)
-    links = d.get("open_trend_links") or []
-    clickable = []
     for i, v in enumerate(open_trend):
-        ann = ax2.annotate(str(v), (i, v), textcoords="offset points", xytext=(0, 11),
-                            ha="center", fontsize=13, fontweight="bold", color=AMBER,
-                            bbox=dict(boxstyle="round,pad=0.25", facecolor=LIGHT_AMBER,
-                                      edgecolor="none", alpha=0.9))
-        if i < len(links):
-            clickable.append((ann, links[i]))
+        ax2.annotate(str(v), (i, v), textcoords="offset points", xytext=(0, 11),
+                     ha="center", fontsize=13, fontweight="bold", color=AMBER,
+                     bbox=dict(boxstyle="round,pad=0.25", facecolor=LIGHT_AMBER,
+                               edgecolor="none", alpha=0.9))
 
     ax.set_xticks(x)
     ax.set_xticklabels(weeks, rotation=0, fontsize=13)
@@ -287,7 +254,6 @@ def chart_quality(d, outpath):
     ax.legend(l1 + l2, lb1 + lb2, loc="upper center", bbox_to_anchor=(0.5, -0.12), ncol=3,
               frameon=False, fontsize=12.5)
     fig.tight_layout()
-    write_imagemap(outpath, fig, clickable)
     fig.savefig(outpath, dpi=160)
     plt.close(fig)
 
@@ -303,23 +269,15 @@ def chart_ai_epics_pct(d, outpath):
     bw = 0.35
     ax.bar(x - bw / 2, total_epics, width=bw, color=GREY, label="Total epics resolved", zorder=3)
     ax.bar(x + bw / 2, ai_epics, width=bw, color=PURPLE, label="Epics developed by AI", zorder=3)
+    # No bar value labels here -- per Kobi's request, only the trend line carries
+    # number labels; the bars speak for themselves against the left axis.
     bbox = lambda fc: dict(boxstyle="round,pad=0.25", facecolor=fc, edgecolor="none", alpha=0.9)
-    for i, v in enumerate(total_epics):
-        ax.text(i - bw / 2, v + max(total_epics) * 0.02, str(v), ha="center", fontsize=13, color="#555",
-                bbox=bbox(LIGHT_GREY))
-    for i, v in enumerate(ai_epics):
-        ax.text(i + bw / 2, v + max(total_epics) * 0.02, str(v), ha="center", fontsize=13,
-                fontweight="bold", color=PURPLE, bbox=bbox(LIGHT_PURPLE))
 
     ax2 = ax.twinx()
     ax2.plot(x, pct, color=AMBER, marker="o", markersize=7, linewidth=2.6, label="% developed by AI", zorder=4)
-    links = d.get("pct_links") or []
-    clickable = []
     for i, v in enumerate(pct):
-        ann = ax2.annotate(f"{v:.0f}%", (i, v), textcoords="offset points", xytext=(-22, 14),
-                            ha="center", fontsize=14, fontweight="bold", color=AMBER, bbox=bbox(LIGHT_AMBER))
-        if i < len(links):
-            clickable.append((ann, links[i]))
+        ax2.annotate(f"{v:.0f}%", (i, v), textcoords="offset points", xytext=(-22, 14),
+                     ha="center", fontsize=14, fontweight="bold", color=AMBER, bbox=bbox(LIGHT_AMBER))
 
     ax.set_xticks(x)
     ax.set_xticklabels(months, fontsize=13)
@@ -339,7 +297,6 @@ def chart_ai_epics_pct(d, outpath):
     ax.legend(l1 + l2, lb1 + lb2, loc="upper center", bbox_to_anchor=(0.5, -0.12), ncol=3,
               frameon=False, fontsize=12.5)
     fig.tight_layout()
-    write_imagemap(outpath, fig, clickable)
     fig.savefig(outpath, dpi=160)
     plt.close(fig)
     return pct
@@ -356,23 +313,15 @@ def chart_ai_fields_adoption(d, outpath):
     bw = 0.35
     ax.bar(x - bw / 2, marked_ai, width=bw, color=PURPLE, label="Issues marked as AI", zorder=3)
     ax.bar(x + bw / 2, new_metrics, width=bw, color=TEAL, label="Having new AI metrics", zorder=3)
+    # No bar value labels here -- per Kobi's request, only the trend line carries
+    # number labels; the bars speak for themselves against the left axis.
     bbox = lambda fc: dict(boxstyle="round,pad=0.25", facecolor=fc, edgecolor="none", alpha=0.9)
-    for i, v in enumerate(marked_ai):
-        ax.text(i - bw / 2, v + max(marked_ai) * 0.02, str(v), ha="center", fontsize=13,
-                fontweight="bold", color=PURPLE, bbox=bbox(LIGHT_PURPLE))
-    for i, v in enumerate(new_metrics):
-        ax.text(i + bw / 2, v + max(marked_ai) * 0.02, str(v), ha="center", fontsize=13, color=TEAL_EDGE,
-                bbox=bbox(LIGHT_TEAL))
 
     ax2 = ax.twinx()
     ax2.plot(x, pct, color=AMBER, marker="o", markersize=7, linewidth=2.6, label="% adoption", zorder=4)
-    links = d.get("pct_links") or []
-    clickable = []
     for i, v in enumerate(pct):
-        ann = ax2.annotate(f"{v:.1f}%", (i, v), textcoords="offset points", xytext=(-22, 14),
-                            ha="center", fontsize=14, fontweight="bold", color=AMBER, bbox=bbox(LIGHT_AMBER))
-        if i < len(links):
-            clickable.append((ann, links[i]))
+        ax2.annotate(f"{v:.1f}%", (i, v), textcoords="offset points", xytext=(-22, 14),
+                     ha="center", fontsize=14, fontweight="bold", color=AMBER, bbox=bbox(LIGHT_AMBER))
 
     ax.set_xticks(x)
     ax.set_xticklabels(months, fontsize=13)
@@ -392,7 +341,6 @@ def chart_ai_fields_adoption(d, outpath):
     ax.legend(l1 + l2, lb1 + lb2, loc="upper center", bbox_to_anchor=(0.5, -0.12), ncol=3,
               frameon=False, fontsize=12.5)
     fig.tight_layout()
-    write_imagemap(outpath, fig, clickable)
     fig.savefig(outpath, dpi=160)
     plt.close(fig)
     return pct
