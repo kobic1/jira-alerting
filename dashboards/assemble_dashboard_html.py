@@ -60,7 +60,7 @@ h1 { font-size:21px; margin:0 0 20px; }
 footer { font-size:11px; color:#999; border-top:1px solid #eee; padding-top:14px; margin-top:6px; }
 
 .aimetrics-card { background:white; border-radius:10px; overflow:hidden; margin-bottom:14px; border:1px solid #eee; }
-.aimetrics-h { background:linear-gradient(135deg,#6B21D9,#6D28D9); color:white; font-size:11px; font-weight:700; letter-spacing:0.04em; text-transform:uppercase; padding:8px 14px; }
+.aimetrics-h { background-color:#6B21D9; background-image:linear-gradient(135deg,#6B21D9,#6D28D9); color:white; font-size:11px; font-weight:700; letter-spacing:0.04em; text-transform:uppercase; padding:8px 14px; }
 table.aimetrics { width:100%; border-collapse:collapse; font-variant-numeric:tabular-nums; font-size:12.5px; }
 table.aimetrics th, table.aimetrics td { padding:7px 10px; text-align:right; border-bottom:1px solid #f2f2f2; }
 table.aimetrics th:first-child, table.aimetrics td.rowlbl { text-align:left; color:#555; font-weight:500; }
