@@ -38,7 +38,8 @@
   "ai_epics_month_style": "short",
   "_ai_fields_note": "Re-enabled 2026-08-30: CXCO started populating cf[15262] (PR-URL) in August 2026 -- only 5 issues had it Apr-Jul combined, but 48 in August alone. The prior 'hasn't instrumented those fields yet' omission was accurate when set (2026-08-06) but went stale once the team started using the field.",
   "sections": {
-    "ai_fields_adoption": true
+    "ai_fields_adoption": true,
+    "ai_metrics_table": true
   },
   "recipients_env": "CXCO_DASHBOARD_RECIPIENTS",
   "_recipients_note": "Recipient addresses are NOT in this file -- the repo is public. Managers come from the CXCO_DASHBOARD_RECIPIENTS secret (semicolon-separated); the test audience comes from PMN_DASHBOARD_TEST_RECIPIENT (shared -- it is just Kobi's review copy).",

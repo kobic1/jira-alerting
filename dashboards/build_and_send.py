@@ -363,14 +363,18 @@ def build_ai_fields(j: Jira, cfg: dict, today: dt.date, first_month: int = 4) ->
 def build_ai_metrics_table(j: Jira, cfg: dict, today: dt.date) -> dict:
     """The jira-implementer-stat skill's cohort table (Issues Marked as AI, Having AI
     Metrics Stats, %, median Dev/Review duration, average Code Coverage) for EPICS and
-    BUG+STORY, all teams combined -- Kobi asked for "just the table as is, without any
-    filtering ability" (2026-09-03), not the interactive multi-team dashboard the skill
-    also supports. Bucketed by the Closed date field (cf[10099]), confirmed populated
-    for this project; last 4 calendar months including the current partial one."""
+    BUG+STORY -- "just the table as is, without any filtering ability" (Kobi,
+    2026-09-03), not the interactive multi-team dashboard the skill also supports.
+    Bucketed by the Closed date field (cf[10099]); last 4 calendar months including
+    the current partial one. For a team-scoped config (Ascenders/Fellowship, both
+    cuts of PMN) this scopes to that team, same as every other section here -- an
+    unscoped table would just repeat PMN's own whole-project numbers verbatim."""
     proj = cfg["project"]
+    any_team, bug_team = team_clauses(cfg)
     FIELDS = ["customfield_15262", CF_CODE_COVERAGE, CF_DEV_DURATION,
               CF_REVIEW_DURATION, "customfield_10099"]
-    GROUPS = [("epics", "issuetype = Epic"), ("bug_story", "issuetype in (Story, Bug)")]
+    GROUPS = [("epics", "issuetype = Epic", any_team),
+              ("bug_story", "issuetype in (Story, Bug)", bug_team)]
 
     months: list[tuple[int, int]] = []
     y, m = today.year, today.month
@@ -396,8 +400,8 @@ def build_ai_metrics_table(j: Jira, cfg: dict, today: dt.date) -> dict:
                    for yr, mo in months],
         "as_of": today.isoformat(),
     }
-    for key, type_clause in GROUPS:
-        jql = (f'project = {proj} AND {type_clause} AND status = Done '
+    for key, type_clause, team in GROUPS:
+        jql = (f'project = {proj} AND {type_clause}{team} AND status = Done '
                f'AND {CF_IMPLEMENTED_BY_AI} = "Yes" '
                f'AND {CF_CLOSED_DATE} >= "{lo}" AND {CF_CLOSED_DATE} < "{hi}"')
         buckets: dict[tuple[int, int], list[dict]] = {ym: [] for ym in months}

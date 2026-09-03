@@ -36,7 +36,8 @@
   "ai_epics_first_month": 1,
   "ai_epics_month_style": "short",
   "sections": {
-    "ai_fields_adoption": true
+    "ai_fields_adoption": true,
+    "ai_metrics_table": true
   },
   "recipients_env": "PMN_DASHBOARD_RECIPIENTS",
   "edct_source": "jira",

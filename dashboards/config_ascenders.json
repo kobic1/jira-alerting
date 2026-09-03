@@ -42,7 +42,8 @@
   "ai_epics_month_style": "short",
   "sections": {
     "ai_fields_adoption": true,
-    "edct": true
+    "edct": true,
+    "ai_metrics_table": true
   },
   "footer_note": "Ascenders is the Wallboards team.",
   "edct_source": "jira",
