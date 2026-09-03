@@ -1,0 +1,49 @@
+{
+  "project": "CXSUP",
+  "project_label": "CXSUP (CXone Supervisor)",
+  "powerbi_snapshot": "powerbi_snapshot_cxsup.json",
+  "release": "26.4",
+  "subject_prefix": "CXSUP Release Status",
+  "release_start_date": "2026-07-15",
+  "release_end_date": "2026-10-06",
+  "sprint_boundaries": [
+    "2026-07-15",
+    "2026-08-05",
+    "2026-08-26",
+    "2026-09-16",
+    "2026-10-06"
+  ],
+  "_forecast_note": "Kobi first asked (2026-09-03) for 20% above the last release (73 * 1.2 = 88), then corrected (2026-09-04) to the team's actual stated target of 146. The plain 5-release regression (74/35/58/54/73) would give only 64, well under either -- history has real variance and CXSUP was already at 113 delivered by day ~50 of the release.",
+  "forecast_override": 146,
+  "forecast_basis": "the team's stated 26.4 epic target",
+  "release_history": {
+    "25.3": 74,
+    "25.4": 35,
+    "26.1": 58,
+    "26.2": 54,
+    "26.3": 73
+  },
+  "release_order": [
+    "25.3",
+    "25.4",
+    "26.1",
+    "26.2",
+    "26.3"
+  ],
+  "recipients_env": "CXSUP_DASHBOARD_RECIPIENTS",
+  "_recipients_note": "Recipient addresses are NOT in this file -- the repo is public. Managers come from the CXSUP_DASHBOARD_RECIPIENTS secret (semicolon-separated); the test audience comes from PMN_DASHBOARD_TEST_RECIPIENT.",
+  "ai_epics_first_month": 1,
+  "ai_epics_month_style": "short",
+  "sections": {
+    "ai_fields_adoption": true,
+    "ai_metrics_table": true
+  },
+  "edct_source": "jira",
+  "edct_ai_only": true,
+  "edct_first_month": 4,
+  "manager_send_days": [
+    0,
+    3
+  ],
+  "daily_personal_copy": false
+}

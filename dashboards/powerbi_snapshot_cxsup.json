@@ -1,0 +1,3 @@
+{
+  "_what": "CXSUP is Jira-only end to end (delivery, quality, EDCT, both AI-adoption charts) -- there is no Power BI snapshot history for this project, unlike PMN/CXCO which carried one over from before the Jira migration. Deliberately empty of 'last_synced'/'edct'/'issues_with_pr_id' so every reconciliation check in verify_data.py SKIPs (report.get('last_synced') is falsy, same for the per-check keys) rather than comparing against a stale or mismatched population."
+}
