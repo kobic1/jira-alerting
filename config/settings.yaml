@@ -93,11 +93,13 @@ managerial_summary:
       - ben.johnson@nice.com
       - ashish.sheth@nice.com
       - pradeep.sant@nice.com
+      - nikita.agrawal@nice.com
     PMSTND:
       - kobi.cohen@nice.com
       - ben.johnson@nice.com
       - ashish.sheth@nice.com
       - pradeep.sant@nice.com
+      - nikita.agrawal@nice.com
     CXSUP:
       - prashant.deshpande@nice.com
       - sampada.bhonsale@nice.com
@@ -105,6 +107,7 @@ managerial_summary:
       - prashant.deshpande@nice.com
     CXWFM:
       - sampada.bhonsale@nice.com
+      - noa.ayalon@nice.com
 
 logging:
   level: "INFO"
