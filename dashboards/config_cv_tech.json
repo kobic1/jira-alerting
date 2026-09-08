@@ -1,0 +1,56 @@
+{
+  "project": "PMN",
+  "project_label": "PMN (Performance Management Native)",
+  "powerbi_snapshot": "powerbi_snapshot.json",
+  "release": "26.4",
+  "subject_prefix": "PMN Release Status — CV-Tech Team",
+  "_team_scope_note": "PMN records the team in two different fields depending on issue type: cf[10040] 'Epic Team' is set on epics, cf[10098] 'Team Name' on stories/bugs/tasks. any_clause is the union (158 via cf[10040], 122 via cf[10098]); bug_clause is what bugs actually carry -- confirmed 0 bugs have cf[10040] set, matching the Ascenders/Fellowship pattern.",
+  "team_scope": {
+    "name": "CV-Tech",
+    "any_clause": "(cf[10040] = \"CV-Tech\" OR cf[10098] = \"CV-Tech\")",
+    "bug_clause": "cf[10098] = \"CV-Tech\""
+  },
+  "release_start_date": "2026-07-15",
+  "release_end_date": "2026-10-06",
+  "sprint_boundaries": [
+    "2026-07-15",
+    "2026-08-05",
+    "2026-08-26",
+    "2026-09-16",
+    "2026-10-06"
+  ],
+  "_forecast_note": "Kobi asked (2026-09-08) for 20% more than the last release: 26.3 delivered 15, so 15 * 1.2 = 18. Only 2 epics delivered by day 55 of the 83-day 26.4 release -- well behind pace for either the override or the plain 5-release regression (~9.8) -- flagged to Kobi before picking this number rather than guessing.",
+  "forecast_override": 18,
+  "forecast_basis": "20% more than the last release (26.3: 15)",
+  "release_history": {
+    "25.3": 8,
+    "25.4": 9,
+    "26.1": 10,
+    "26.2": 7,
+    "26.3": 15
+  },
+  "release_order": [
+    "25.3",
+    "25.4",
+    "26.1",
+    "26.2",
+    "26.3"
+  ],
+  "_recipients_note": "Recipient addresses are NOT in this file -- the repo is public. They come from the CV_TECH_DASHBOARD_RECIPIENTS secret (semicolon-separated); the test audience comes from PMN_DASHBOARD_TEST_RECIPIENT.",
+  "recipients_env": "CV_TECH_DASHBOARD_RECIPIENTS",
+  "ai_epics_first_month": 1,
+  "ai_epics_month_style": "short",
+  "sections": {
+    "ai_fields_adoption": true,
+    "edct": true,
+    "ai_metrics_table": true
+  },
+  "edct_source": "jira",
+  "edct_ai_only": true,
+  "edct_first_month": 4,
+  "manager_send_days": [
+    0,
+    3
+  ],
+  "daily_personal_copy": false
+}

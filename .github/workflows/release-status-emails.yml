@@ -58,6 +58,7 @@ on:
           - ascenders
           - fellowship
           - cxsup
+          - cv_tech
 
 permissions:
   contents: read
@@ -69,7 +70,7 @@ jobs:
     strategy:
       fail-fast: false        # one project failing must not cancel the other
       matrix:
-        project: [pmn, cxco, ascenders, fellowship, cxsup]
+        project: [pmn, cxco, ascenders, fellowship, cxsup, cv_tech]
     name: ${{ matrix.project }}
     steps:
       - name: Skip project not selected for this manual run
@@ -144,6 +145,7 @@ jobs:
           ASC_RCPT: ${{ secrets.ASCENDERS_DASHBOARD_RECIPIENTS }}
           FLW_RCPT: ${{ secrets.FELLOWSHIP_DASHBOARD_RECIPIENTS }}
           CXSUP_RCPT: ${{ secrets.CXSUP_DASHBOARD_RECIPIENTS }}
+          CV_TECH_RCPT: ${{ secrets.CV_TECH_DASHBOARD_RECIPIENTS }}
         run: |
           MISSING=""
           [ -n "$FLOW_URL" ] || MISSING="$MISSING POWER_AUTOMATE_EMAIL_URL"
@@ -153,6 +155,7 @@ jobs:
             ascenders) [ -n "$ASC_RCPT" ] || MISSING="$MISSING ASCENDERS_DASHBOARD_RECIPIENTS" ;;
             fellowship) [ -n "$FLW_RCPT" ] || MISSING="$MISSING FELLOWSHIP_DASHBOARD_RECIPIENTS" ;;
             cxsup) [ -n "$CXSUP_RCPT" ] || MISSING="$MISSING CXSUP_DASHBOARD_RECIPIENTS" ;;
+            cv_tech) [ -n "$CV_TECH_RCPT" ] || MISSING="$MISSING CV_TECH_DASHBOARD_RECIPIENTS" ;;
           esac
           if [ -n "$MISSING" ]; then
             echo "::error::Missing repo secret(s):$MISSING — set them in Settings → Secrets and variables → Actions. Nothing was sent."
@@ -172,6 +175,7 @@ jobs:
           ASCENDERS_DASHBOARD_RECIPIENTS: ${{ secrets.ASCENDERS_DASHBOARD_RECIPIENTS }}
           FELLOWSHIP_DASHBOARD_RECIPIENTS: ${{ secrets.FELLOWSHIP_DASHBOARD_RECIPIENTS }}
           CXSUP_DASHBOARD_RECIPIENTS: ${{ secrets.CXSUP_DASHBOARD_RECIPIENTS }}
+          CV_TECH_DASHBOARD_RECIPIENTS: ${{ secrets.CV_TECH_DASHBOARD_RECIPIENTS }}
           PMN_DASHBOARD_TEST_RECIPIENT: ${{ secrets.PMN_DASHBOARD_TEST_RECIPIENT }}
           INPUT_AUDIENCE: ${{ github.event.inputs.audience }}
         run: |
