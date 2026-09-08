@@ -68,7 +68,7 @@ rules:
       - field: business_days_since_update
         operator: gte
         value: 2
-    group_by: project_lead
+    group_by: reporter
     also_notify_roles:
       - epic_closure_watcher
     severity: medium
