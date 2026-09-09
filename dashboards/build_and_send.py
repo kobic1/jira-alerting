@@ -774,6 +774,7 @@ def main() -> int:
     ap.add_argument("--config", default="config_pmn.json",
                     help="project config in this directory: config_pmn.json, "
                          "config_cxco.json")
+    ap.add_argument("--cc", default="", help="CC recipient(s). Semicolon-separated.")
     args = ap.parse_args()
 
     cfg = json.load(open(HERE / args.config))
@@ -872,8 +873,11 @@ def main() -> int:
     if audience == "test":
         subject = f"[test] {subject}"
     print(f"\nSending to {len(recipients)} recipient(s): {', '.join(recipients)}")
-    run([sys.executable, HERE / "send_email.py", "--to", ";".join(recipients),
-         "--subject", subject, "--body-file", html, "--importance", "Normal"], "email send")
+    send_cmd = [sys.executable, HERE / "send_email.py", "--to", ";".join(recipients),
+                "--subject", subject, "--body-file", html, "--importance", "Normal"]
+    if args.cc:
+        send_cmd += ["--cc", args.cc]
+    run(send_cmd, "email send")
     print("\nDone.")
     return 0
 

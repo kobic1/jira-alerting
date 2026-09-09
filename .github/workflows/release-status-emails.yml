@@ -59,6 +59,10 @@ on:
           - fellowship
           - cxsup
           - cv_tech
+      cc:
+        description: 'CC recipient(s), semicolon-separated (optional)'
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -178,6 +182,7 @@ jobs:
           CV_TECH_DASHBOARD_RECIPIENTS: ${{ secrets.CV_TECH_DASHBOARD_RECIPIENTS }}
           PMN_DASHBOARD_TEST_RECIPIENT: ${{ secrets.PMN_DASHBOARD_TEST_RECIPIENT }}
           INPUT_AUDIENCE: ${{ github.event.inputs.audience }}
+          INPUT_CC: ${{ github.event.inputs.cc }}
         run: |
           # Scheduled (cron) runs carry no input and use 'auto', which lets each config
           # decide today's audience. Manual runs default to the Kobi-only test copy.
@@ -190,9 +195,12 @@ jobs:
             *)                echo "Unknown audience '$INPUT_AUDIENCE'" >&2; exit 1 ;;
           esac
           echo "Project: ${{ matrix.project }} · Audience: $AUDIENCE"
+          CC_ARG=()
+          [ -n "${INPUT_CC:-}" ] && CC_ARG=(--cc "$INPUT_CC")
           python dashboards/build_and_send.py \
             --config "config_${{ matrix.project }}.json" \
-            --audience "$AUDIENCE"
+            --audience "$AUDIENCE" \
+            "${CC_ARG[@]}"
 
       - name: Upload the built dashboard
         if: always() && steps.gate.outputs.run == 'true' && steps.dedupe.outputs.run != 'false'
