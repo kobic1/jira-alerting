@@ -1,0 +1,56 @@
+{
+  "project": "PMN",
+  "project_label": "PMN (Performance Management Native)",
+  "powerbi_snapshot": "powerbi_snapshot.json",
+  "release": "26.4",
+  "subject_prefix": "PMN Release Status — Phoenix Team",
+  "_team_scope_note": "PMN records the team in two different fields depending on issue type: cf[10040] 'Epic Team' is set on epics, cf[10098] 'Team Name' on stories/bugs/tasks. any_clause is the union (112 issues total via either field); bug_clause is what bugs actually carry -- confirmed 0 bugs have cf[10040] set, matching the CV-Tech/Ascenders/Fellowship pattern.",
+  "team_scope": {
+    "name": "Phoenix",
+    "any_clause": "(cf[10040] = \"Phoenix\" OR cf[10098] = \"Phoenix\")",
+    "bug_clause": "cf[10098] = \"Phoenix\""
+  },
+  "release_start_date": "2026-07-15",
+  "release_end_date": "2026-10-06",
+  "sprint_boundaries": [
+    "2026-07-15",
+    "2026-08-05",
+    "2026-08-26",
+    "2026-09-16",
+    "2026-10-06"
+  ],
+  "_forecast_note": "Phoenix has 0 delivered epics in every one of the last 5 releases (25.3/25.4/26.1/26.2/26.3) -- a brand-new team, only active starting 26.4, where it has delivered 5 so far. With no history at all, neither a regression nor a %-over-last-release approach applies (last release was 0), so Kobi gave the team's actual stated target directly (2026-09-15): 8 epics.",
+  "forecast_override": 8,
+  "forecast_basis": "the team's stated 26.4 epic target",
+  "release_history": {
+    "25.3": 0,
+    "25.4": 0,
+    "26.1": 0,
+    "26.2": 0,
+    "26.3": 0
+  },
+  "release_order": [
+    "25.3",
+    "25.4",
+    "26.1",
+    "26.2",
+    "26.3"
+  ],
+  "_recipients_note": "Recipient addresses are NOT in this file -- the repo is public. They come from the PHOENIX_DASHBOARD_RECIPIENTS secret (semicolon-separated); the test audience comes from PMN_DASHBOARD_TEST_RECIPIENT.",
+  "recipients_env": "PHOENIX_DASHBOARD_RECIPIENTS",
+  "ai_epics_first_month": 1,
+  "ai_epics_month_style": "short",
+  "sections": {
+    "ai_fields_adoption": true,
+    "edct": true,
+    "ai_metrics_table": true
+  },
+  "edct_source": "jira",
+  "edct_ai_only": true,
+  "edct_first_month": 4,
+  "manager_send_days": [
+    0,
+    3
+  ],
+  "daily_personal_copy": false
+}
