@@ -36,8 +36,9 @@
     "26.2",
     "26.3"
   ],
-  "_recipients_note": "Recipient addresses are NOT in this file -- the repo is public. They come from the PHOENIX_DASHBOARD_RECIPIENTS secret (semicolon-separated); the test audience comes from PMN_DASHBOARD_TEST_RECIPIENT.",
+  "_recipients_note": "Recipient addresses are NOT in this file -- the repo is public. They come from the PHOENIX_DASHBOARD_RECIPIENTS secret (semicolon-separated); the test audience comes from PMN_DASHBOARD_TEST_RECIPIENT. cc_env is optional and only applied on a real 'managers' send, never on a test/personal copy.",
   "recipients_env": "PHOENIX_DASHBOARD_RECIPIENTS",
+  "cc_env": "PHOENIX_DASHBOARD_CC",
   "ai_epics_first_month": 1,
   "ai_epics_month_style": "short",
   "sections": {

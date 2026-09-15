@@ -59,6 +59,7 @@ on:
           - fellowship
           - cxsup
           - cv_tech
+          - phoenix
 
 permissions:
   contents: read
@@ -70,7 +71,7 @@ jobs:
     strategy:
       fail-fast: false        # one project failing must not cancel the other
       matrix:
-        project: [pmn, cxco, ascenders, fellowship, cxsup, cv_tech]
+        project: [pmn, cxco, ascenders, fellowship, cxsup, cv_tech, phoenix]
     name: ${{ matrix.project }}
     steps:
       - name: Skip project not selected for this manual run
@@ -146,6 +147,7 @@ jobs:
           FLW_RCPT: ${{ secrets.FELLOWSHIP_DASHBOARD_RECIPIENTS }}
           CXSUP_RCPT: ${{ secrets.CXSUP_DASHBOARD_RECIPIENTS }}
           CV_TECH_RCPT: ${{ secrets.CV_TECH_DASHBOARD_RECIPIENTS }}
+          PHOENIX_RCPT: ${{ secrets.PHOENIX_DASHBOARD_RECIPIENTS }}
         run: |
           MISSING=""
           [ -n "$FLOW_URL" ] || MISSING="$MISSING POWER_AUTOMATE_EMAIL_URL"
@@ -156,6 +158,7 @@ jobs:
             fellowship) [ -n "$FLW_RCPT" ] || MISSING="$MISSING FELLOWSHIP_DASHBOARD_RECIPIENTS" ;;
             cxsup) [ -n "$CXSUP_RCPT" ] || MISSING="$MISSING CXSUP_DASHBOARD_RECIPIENTS" ;;
             cv_tech) [ -n "$CV_TECH_RCPT" ] || MISSING="$MISSING CV_TECH_DASHBOARD_RECIPIENTS" ;;
+            phoenix) [ -n "$PHOENIX_RCPT" ] || MISSING="$MISSING PHOENIX_DASHBOARD_RECIPIENTS" ;;
           esac
           if [ -n "$MISSING" ]; then
             echo "::error::Missing repo secret(s):$MISSING — set them in Settings → Secrets and variables → Actions. Nothing was sent."
@@ -176,6 +179,8 @@ jobs:
           FELLOWSHIP_DASHBOARD_RECIPIENTS: ${{ secrets.FELLOWSHIP_DASHBOARD_RECIPIENTS }}
           CXSUP_DASHBOARD_RECIPIENTS: ${{ secrets.CXSUP_DASHBOARD_RECIPIENTS }}
           CV_TECH_DASHBOARD_RECIPIENTS: ${{ secrets.CV_TECH_DASHBOARD_RECIPIENTS }}
+          PHOENIX_DASHBOARD_RECIPIENTS: ${{ secrets.PHOENIX_DASHBOARD_RECIPIENTS }}
+          PHOENIX_DASHBOARD_CC: ${{ secrets.PHOENIX_DASHBOARD_CC }}
           PMN_DASHBOARD_TEST_RECIPIENT: ${{ secrets.PMN_DASHBOARD_TEST_RECIPIENT }}
           INPUT_AUDIENCE: ${{ github.event.inputs.audience }}
         run: |

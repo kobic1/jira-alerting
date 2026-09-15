@@ -753,6 +753,17 @@ def resolve_recipients(cfg, audience):
     return [a.strip() for a in raw.replace(",", ";").split(";") if a.strip()]
 
 
+def resolve_cc(cfg, audience) -> list[str]:
+    """CC addresses, from a per-config secret (cc_env) -- only for a real 'managers'
+    send. A test/personal copy to Kobi has no reason to CC anyone."""
+    if audience != "managers":
+        return []
+    var = cfg.get("cc_env")
+    if not var:
+        return []
+    raw = os.environ.get(var, "")
+    return [a.strip() for a in raw.replace(",", ";").split(";") if a.strip()]
+
 
 def run(cmd: list[str], label: str) -> None:
     print(f"\n$ {' '.join(str(c) for c in cmd)}", flush=True)
@@ -791,6 +802,9 @@ def main() -> int:
     if recipients is not None:
         shown = ", ".join(mask(a) for a in recipients)
         print(f"Recipients ({audience}): {len(recipients)} — {shown}")
+    cc = resolve_cc(cfg, audience)
+    if cc:
+        print(f"CC: {len(cc)} — {', '.join(mask(a) for a in cc)}")
 
     start = cfg.get("first_send_date")
     if start and today < d(start) and audience == "managers":
@@ -871,9 +885,13 @@ def main() -> int:
     subject = f"{cfg['subject_prefix']} — {today.strftime('%B %-d, %Y')}"
     if audience == "test":
         subject = f"[test] {subject}"
-    print(f"\nSending to {len(recipients)} recipient(s): {', '.join(recipients)}")
-    run([sys.executable, HERE / "send_email.py", "--to", ";".join(recipients),
-         "--subject", subject, "--body-file", html, "--importance", "Normal"], "email send")
+    print(f"\nSending to {len(recipients)} recipient(s): {', '.join(recipients)}"
+          + (f" (cc {', '.join(cc)})" if cc else ""))
+    send_cmd = [sys.executable, HERE / "send_email.py", "--to", ";".join(recipients),
+                "--subject", subject, "--body-file", html, "--importance", "Normal"]
+    if cc:
+        send_cmd += ["--cc", ";".join(cc)]
+    run(send_cmd, "email send")
     print("\nDone.")
     return 0
 
